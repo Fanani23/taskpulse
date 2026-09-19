@@ -1,0 +1,22 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
+
+COPY Directory.Build.props global.json ./
+COPY src/TaskPulse.Realtime/TaskPulse.Realtime.csproj src/TaskPulse.Realtime/
+RUN dotnet restore src/TaskPulse.Realtime/TaskPulse.Realtime.csproj
+
+COPY src/TaskPulse.Realtime/ src/TaskPulse.Realtime/
+RUN dotnet publish src/TaskPulse.Realtime/TaskPulse.Realtime.csproj -c Release -o /app/publish --no-restore
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+WORKDIR /app
+COPY --from=build /app/publish .
+
+ENV ASPNETCORE_URLS=http://+:8080 \
+    ASPNETCORE_ENVIRONMENT=Production \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1
+
+EXPOSE 8080
+USER app
+ENTRYPOINT ["dotnet", "TaskPulse.Realtime.dll"]

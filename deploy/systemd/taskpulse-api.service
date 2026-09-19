@@ -1,0 +1,51 @@
+[Unit]
+Description=TaskPulse API (.NET 10, Kestrel on 127.0.0.1:5080)
+Documentation=file:///opt/taskpulse/README.md
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=taskpulse
+Group=taskpulse
+WorkingDirectory=/opt/taskpulse/api
+ExecStart=/usr/bin/dotnet /opt/taskpulse/api/TaskPulse.Api.dll
+
+Environment=ASPNETCORE_URLS=http://127.0.0.1:5080
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
+Environment=DOTNET_NOLOGO=1
+
+EnvironmentFile=/etc/taskpulse/api.env
+
+KillSignal=SIGTERM
+TimeoutStopSec=15
+Restart=on-failure
+RestartSec=3
+SyslogIdentifier=taskpulse-api
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+UMask=0077
+ReadOnlyPaths=/opt/taskpulse/api
+
+[Install]
+WantedBy=multi-user.target

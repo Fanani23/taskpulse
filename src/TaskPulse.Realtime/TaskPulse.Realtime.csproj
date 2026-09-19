@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>TaskPulse.Realtime</RootNamespace>
+    <AssemblyName>TaskPulse.Realtime</AssemblyName>
+    <Description>WebSocket server sample (.NET 10) - echo / broadcast / ping with a connection registry, graceful shutdown and a browser test client.</Description>
+  </PropertyGroup>
+
+</Project>
