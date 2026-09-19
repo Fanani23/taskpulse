@@ -11,4 +11,6 @@ public sealed class ApiOptions
 
     [Range(1, 1000)]
     public int MaxPageSize { get; set; } = 100;
+
+    public string[] AllowedOrigins { get; set; } = [];
 }

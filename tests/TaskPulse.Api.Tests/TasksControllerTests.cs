@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Hosting;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -162,5 +163,21 @@ public sealed class TasksControllerTests(ApiFactory factory) : IClassFixture<Api
 
         var doc = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.True(doc.GetProperty("paths").TryGetProperty("/api/tasks", out _));
+    }
+    [Fact]
+    public async Task Cross_origin_requests_are_refused_unless_the_origin_is_allowed()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/tasks");
+        request.Headers.Add("Origin", "https://evil.example");
+        var response = await _client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.False(response.Headers.Contains("Access-Control-Allow-Origin"));
+
+        using var allowed = ApiFactory.ForDatabase(factory.DatabaseName)
+            .WithWebHostBuilder(b => b.UseSetting("Api:AllowedOrigins:0", "https://portal.example"));
+        using var allowedRequest = new HttpRequestMessage(HttpMethod.Get, "/api/tasks");
+        allowedRequest.Headers.Add("Origin", "https://portal.example");
+        var allowedResponse = await allowed.CreateClient().SendAsync(allowedRequest);
+        Assert.Equal("https://portal.example", allowedResponse.Headers.GetValues("Access-Control-Allow-Origin").Single());
     }
 }

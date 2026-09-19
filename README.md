@@ -98,6 +98,12 @@ Base path `/api/tasks`. JSON in and out; enums as strings; errors as RFC 9457 `a
 
 `status` ∈ `Todo | InProgress | Done`. `pageSize` is clamped to `Api:MaxPageSize` (100 by default).
 
+**Browsers on another origin:** CORS is off unless `Api:AllowedOrigins` lists the origin
+(`Api__AllowedOrigins__0=https://portal.example`; `install.sh` writes it from `TASKPULSE_ALLOWED_ORIGINS="origin ..."`).
+Allowed origins get `GET POST PUT DELETE`, the `Content-Type` request header and the `Location` response header — nothing
+else, and never `*`. The Vue + Express portal (part A) uses this to show a live task board driven by this API and the
+WebSocket server.
+
 **Storage:** PostgreSQL 18 through EF Core (Npgsql). Schema managed by migrations (applied at startup),
 `xmin` as an optimistic-concurrency token, `timestamptz` columns, indexes on `status` and `created_at`.
 The connection string is the only environment-specific piece — `ConnectionStrings:Tasks`:

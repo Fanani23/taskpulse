@@ -54,8 +54,13 @@ done
 cd "$ROOT"
 
 install -d -m 0755 "$ENV_DIR"
-printf 'ConnectionStrings__Tasks=Host=/var/run/postgresql;Port=%s;Database=%s;Username=%s\n' \
-  "$PG_PORT" "$DB_NAME" "$SVC_USER" > "$ENV_DIR/api.env"
+{
+  printf 'ConnectionStrings__Tasks=Host=/var/run/postgresql;Port=%s;Database=%s;Username=%s\n' "$PG_PORT" "$DB_NAME" "$SVC_USER"
+  i=0
+  for origin in ${TASKPULSE_ALLOWED_ORIGINS:-}; do
+    printf 'Api__AllowedOrigins__%s=%s\n' "$i" "$origin"; i=$((i + 1))
+  done
+} > "$ENV_DIR/api.env"
 chmod 0600 "$ENV_DIR/api.env"
 
 BUILD_USER="${SUDO_USER:-$USER}"

@@ -29,6 +29,14 @@ builder.Services
 builder.Services.Configure<ApiBehaviorOptions>(options =>
     options.InvalidModelStateResponseFactory = ValidationProblemResponse.Create);
 
+builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
+{
+    var origins = builder.Configuration.GetSection("Api:AllowedOrigins").Get<string[]>() ?? [];
+    if (origins.Length > 0)
+    {
+        policy.WithOrigins(origins).WithMethods("GET", "POST", "PUT", "DELETE").WithHeaders("Content-Type").WithExposedHeaders("Location");
+    }
+}));
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<BadHttpRequestExceptionHandler>();
 builder.Services.AddOpenApi();
@@ -65,6 +73,7 @@ app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseCors();
 
 app.MapOpenApi();
 
