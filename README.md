@@ -27,7 +27,7 @@ taskpulse/
 │   ├── install.sh                   provision PostgreSQL roles/DBs, publish → /opt/taskpulse, units, nginx  (sudo)
 │   ├── test.sh                      dotnet test against the local cluster (detects its port)
 │   ├── smoke-test.sh                end-to-end check of a running deployment
-│   ├── seed.sh                      ten sample tasks written through the API (idempotent; --force to add again)
+│   ├── seed.sh                      40 sample tasks written through the API (idempotent; --force to add again)
 │   └── run-dev.sh                   both services from source with hot reload
 ├── docker-compose.yml
 ├── Directory.Build.props            net10.0, nullable, warnings-as-errors, invariant globalization
@@ -108,7 +108,7 @@ The connection string is the only environment-specific piece — `ConnectionStri
 | `dotnet run` / tests | `localhost`, role `taskpulse_dev` (throwaway password, `CREATEDB`) | password, local only |
 | Docker compose | `Host=postgres`, `POSTGRES_PASSWORD` from the environment | password, injected |
 
-Nothing is seeded by the database layer: `scripts/seed.sh` writes ten sample tasks **through the API** (it skips
+Nothing is seeded by the database layer: `scripts/seed.sh` writes 40 sample tasks (16 Done, 12 InProgress, 12 Todo) **through the API** (it skips
 itself when the table already has rows; `--force` adds the set again), and the VM bootstrap runs it once.
 Every response carries `X-Correlation-Id` — send your own to trace a request through the logs.
 
