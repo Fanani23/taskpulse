@@ -127,6 +127,7 @@ builder.Services.AddScoped<ITaskRepository, PostgresTaskRepository>();
 builder.Services.AddScoped<ITaskService, TaskService>();
 builder.Services.AddScoped<ICatalogRepository, PostgresCatalogRepository>();
 builder.Services.AddScoped<ICatalogService, CatalogService>();
+builder.Services.AddScoped<CsvTransferService>();
 builder.Services.AddScoped<IPreferencesRepository, PostgresPreferencesRepository>();
 builder.Services.AddScoped<IPreferencesService, PreferencesService>();
 builder.Services.AddScoped<IUploadRepository, PostgresUploadRepository>();

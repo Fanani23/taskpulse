@@ -131,6 +131,9 @@ Base path `/api/tasks`. JSON in and out; enums as strings; errors as RFC 9457 `a
 | `POST` 🔒 | `/api/tasks/{id}/restore` | 200 | 401, 404 |
 | `GET` 🔒 | `/api/audit?resource=task&limit=20` | 200 `[{at, actor, action, resource, kind, targetId, summary}]`; `resource=auth` / `account` (sign-in events from part A) for Admins only | 400, 401, 403 |
 | `POST` | `/api/audit` `{actor, action, resource, targetId, summary}` + `X-Internal-Token` | 202 — events reported by part A (`Api:AuditIngestToken`) | 400, 403 |
+| `GET` | `/api/tasks/export.csv?…same filters…` | 200 `text/csv` (id, title, description, status, priority, dueAt, assigneeId, assigneeName, labels, createdAt, updatedAt) | — |
+| `POST` 🔒 | `/api/tasks/import` (body `text/csv` or multipart `file`) | 200 `{created, updated, skipped:[{row, error}]}` — `title` required, an existing `id` is updated, labels `a\|b`, ≤ 2000 rows; bad rows are reported, the rest go through | 400, 401 |
+| `GET` | `/api/catalog/{kind}/export.csv` · `POST` 🔒 `/api/catalog/{kind}/import` | same shape for a kind (code, label, parents `a\|b`, attributes JSON, sort); an existing `code` is updated | 400, 401 |
 | `GET` | `/health` · `/health/ready` | 200 `Healthy` | 503 |
 | `GET` | `/metrics` | Prometheus text (loopback only through nginx) | — |
 | `GET` | `/openapi/v1.json` | OpenAPI 3 document (bearer scheme declared) | — |
