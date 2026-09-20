@@ -30,6 +30,7 @@ taskpulse/
 │   ├── smoke-test.sh                end-to-end check of a running deployment
 │   ├── seed.sh                      40 sample tasks + the catalog kinds, written through the API (idempotent; --force to add again)
 │   ├── backup.sh                    pg_dump + uploads tarball, keeps 7; --restore <archive>
+│   ├── restore-drill.sh             backup → purge → restore → verify against the compose stack (CI runs it)
 │   ├── load/run.sh                  k6 load profile (readers + writers) with thresholds; last-run.json keeps the figures
 │   └── run-dev.sh                   both services from source with hot reload
 ├── docker-compose.yml

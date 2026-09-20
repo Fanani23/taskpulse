@@ -88,9 +88,21 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
+    env:
+      TASKPULSE_JWT_SECRET: ci-only-jwt-secret-shared-by-express-and-taskpulse-48
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Build images
         run: |
           docker build -f deploy/docker/api.Dockerfile -t taskpulse-api:ci .
           docker build -f deploy/docker/realtime.Dockerfile -t taskpulse-realtime:ci .
+      - name: Compose stack up
+        run: |
+          docker compose up -d --build --quiet-pull
+          for i in $(seq 1 60); do curl -fs http://127.0.0.1:8088/health/ready >/dev/null 2>&1 && break; sleep 2; done
+          curl -fs http://127.0.0.1:8088/health/ready
+      - name: Restore drill (backup, purge, restore, verify)
+        run: bash scripts/restore-drill.sh
+      - name: Compose logs on failure
+        if: failure()
+        run: docker compose logs --tail 80
