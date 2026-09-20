@@ -56,15 +56,35 @@ jobs:
           dotnet list TaskPulse.sln package --vulnerable --include-transitive > vulnerable.txt
           cat vulnerable.txt
           if grep -qE "(High|Critical)" vulnerable.txt; then echo "::error::known-vulnerable package(s) listed above"; exit 1; fi
-      - name: Test (real PostgreSQL, one throw-away database per test class)
-        run: dotnet test TaskPulse.sln -c Release --no-build --logger "trx;LogFileName=results.trx"
+      - name: Test (real PostgreSQL, one throw-away database per test class) with line coverage
+        run: |
+          dotnet test TaskPulse.sln -c Release --no-build --logger "trx;LogFileName=results.trx" \
+            --collect:"XPlat Code Coverage" --results-directory TestResults \
+            -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+      - name: Coverage summary (line rate per project, and the total in the job summary)
+        run: |
+          total_l=0; total_c=0
+          for f in TestResults/*/coverage.cobertura.xml; do
+            rate=$(grep -o 'line-rate="[0-9.]*"' "$f" | head -1 | cut -d'"' -f2)
+            lines=$(grep -o 'lines-valid="[0-9]*"' "$f" | head -1 | cut -d'"' -f2)
+            covered=$(grep -o 'lines-covered="[0-9]*"' "$f" | head -1 | cut -d'"' -f2)
+            total_l=$((total_l + lines)); total_c=$((total_c + covered))
+            printf '%s: %.1f%% (%s/%s lines)\n' "$(basename "$(dirname "$f")")" "$(echo "$rate*100" | bc -l)" "$covered" "$lines"
+          done
+          pct=$(echo "scale=1; 100*$total_c/$total_l" | bc -l)
+          echo "line coverage: ${pct}% ($total_c/$total_l)"
+          echo "### Line coverage: **${pct}%** ($total_c of $total_l lines, both services)" >> "$GITHUB_STEP_SUMMARY"
+          # floor: a change that drops coverage below this fails the build
+          test "$(echo "$pct >= 60" | bc -l)" = 1
       - name: Shell scripts are valid
         run: for f in scripts/*.sh; do bash -n "$f"; done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: test-results
-          path: "**/TestResults/*.trx"
+          path: |
+            **/TestResults/*.trx
+            TestResults/**/coverage.cobertura.xml
 
   docker:
     runs-on: ubuntu-latest

@@ -12,4 +12,14 @@ if [[ -z "${TASKPULSE_TEST_REDIS:-}" ]] && command -v redis-cli >/dev/null && re
   export TASKPULSE_TEST_REDIS="127.0.0.1:6379"
 fi
 echo "tests use: ${TASKPULSE_TEST_PG:-<default: localhost:5432 as taskpulse_dev>}; redis: ${TASKPULSE_TEST_REDIS:-<none, stream tests skipped>}"
+if [[ "${1:-}" == "--coverage" ]]; then
+  shift
+  rm -rf "$ROOT/TestResults"
+  dotnet test "$ROOT/TaskPulse.sln" -c Release --collect:"XPlat Code Coverage" --results-directory "$ROOT/TestResults" "$@" \
+    -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+  for f in "$ROOT"/TestResults/*/coverage.cobertura.xml; do
+    printf '  %s  line-rate %s\n' "$(basename "$(dirname "$f")")" "$(grep -o 'line-rate="[0-9.]*"' "$f" | head -1 | cut -d'"' -f2)"
+  done
+  exit 0
+fi
 exec dotnet test "$ROOT/TaskPulse.sln" -c Release "$@"
