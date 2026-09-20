@@ -192,6 +192,56 @@ public sealed class TasksControllerTests(ApiFactory factory) : IClassFixture<Api
     }
 
     [Fact]
+    public async Task Assignee_due_date_priority_and_labels_round_trip_and_filter()
+    {
+        var due = DateTimeOffset.UtcNow.AddDays(2);
+        var create = await _client.PostAsJsonAsync("/api/tasks", new
+        {
+            title = "Ship the release notes",
+            priority = "High",
+            dueAt = due,
+            assigneeId = "1",
+            assigneeName = "test@techtest.dev",
+            labels = new[] { " Docs ", "release", "docs", "" },
+        });
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var task = (await create.Content.ReadFromJsonAsync<TaskItem>(Json))!;
+        Assert.Equal(TaskPriority.High, task.Priority);
+        Assert.Equal(due.ToUnixTimeSeconds(), task.DueAt!.Value.ToUnixTimeSeconds());
+        Assert.Equal("1", task.AssigneeId);
+        Assert.Equal(new[] { "docs", "release" }, task.Labels); // trimmed, lower-cased, de-duplicated, empties dropped
+
+        // Filters: by label, by priority, by "me" (the client's token has sub 1), by due window.
+        var byLabel = await _client.GetFromJsonAsync<PagedResponse<TaskItem>>("/api/tasks?label=Docs", Json);
+        Assert.Contains(byLabel!.Items, t => t.Id == task.Id);
+        var byPriority = await _client.GetFromJsonAsync<PagedResponse<TaskItem>>("/api/tasks?priority=High", Json);
+        Assert.Contains(byPriority!.Items, t => t.Id == task.Id);
+        Assert.All(byPriority.Items, t => Assert.Equal(TaskPriority.High, t.Priority));
+        var mine = await _client.GetFromJsonAsync<PagedResponse<TaskItem>>("/api/tasks?assignee=me", Json);
+        Assert.Contains(mine!.Items, t => t.Id == task.Id);
+        var week = await _client.GetFromJsonAsync<PagedResponse<TaskItem>>("/api/tasks?due=week", Json);
+        Assert.Contains(week!.Items, t => t.Id == task.Id);
+        var overdue = await _client.GetFromJsonAsync<PagedResponse<TaskItem>>("/api/tasks?due=overdue", Json);
+        Assert.DoesNotContain(overdue!.Items, t => t.Id == task.Id);
+
+        // Past due and still open: overdue, and counted in the stats.
+        var update = await _client.PutAsJsonAsync($"/api/tasks/{task.Id}", new { title = task.Title, status = "InProgress", dueAt = DateTimeOffset.UtcNow.AddDays(-1), labels = new[] { "docs" } });
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        overdue = await _client.GetFromJsonAsync<PagedResponse<TaskItem>>("/api/tasks?due=overdue", Json);
+        Assert.Contains(overdue!.Items, t => t.Id == task.Id);
+        var stats = await _client.GetFromJsonAsync<TaskStats>("/api/tasks/stats", Json);
+        Assert.True(stats!.Overdue >= 1);
+
+        // Too many labels is a validation error, not a truncation.
+        var tooMany = await _client.PostAsJsonAsync("/api/tasks", new { title = "x", labels = Enumerable.Range(0, 11).Select(i => "l" + i).ToArray() });
+        Assert.Equal(HttpStatusCode.BadRequest, tooMany.StatusCode);
+        var bad = await _client.PostAsJsonAsync("/api/tasks", new { title = "x", priority = "Urgent" });
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.DeleteAsync($"/api/tasks/{task.Id}")).StatusCode);
+    }
+
+    [Fact]
     public async Task Stats_reflect_status_counts_and_daily_activity()
     {
         var open = await (await _client.PostAsJsonAsync("/api/tasks", new { title = "Stats open" })).Content.ReadFromJsonAsync<TaskItem>(Json);

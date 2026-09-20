@@ -20,7 +20,17 @@ public sealed class TaskService(
         var page = Math.Max(query.Page ?? 1, 1);
         var pageSize = Math.Clamp(query.PageSize ?? options.Value.DefaultPageSize, 1, options.Value.MaxPageSize);
 
-        var (items, total) = await repository.ListAsync(query.Status, query.Q, query.IncludeDeleted, page, pageSize, cancellationToken);
+        var assignee = string.Equals(query.Assignee, "me", StringComparison.OrdinalIgnoreCase) ? user.Sub : query.Assignee;
+        var due = query.Due?.ToLowerInvariant() switch
+        {
+            "overdue" => TaskDueFilter.Overdue,
+            "today" => TaskDueFilter.Today,
+            "week" => TaskDueFilter.Week,
+            "none" => TaskDueFilter.None,
+            _ => TaskDueFilter.Any,
+        };
+        var filter = new TaskFilter(query.Priority, assignee, NormalizeLabel(query.Label), due, clock.GetUtcNow());
+        var (items, total) = await repository.ListAsync(query.Status, query.Q, query.IncludeDeleted, page, pageSize, filter, cancellationToken);
         return new PagedResponse<TaskItem>(items, page, pageSize, total);
     }
 
@@ -41,7 +51,12 @@ public sealed class TaskService(
             now,
             now,
             CreatedBy: user.Actor,
-            UpdatedBy: user.Actor);
+            UpdatedBy: user.Actor,
+            Priority: request.Priority ?? TaskPriority.Normal,
+            DueAt: request.DueAt,
+            AssigneeId: NormalizeAssignee(request.AssigneeId),
+            AssigneeName: NormalizeAssignee(request.AssigneeName),
+            Labels: NormalizeLabels(request.Labels));
 
         await repository.AddAsync(item, cancellationToken);
         logger.LogInformation("Task {TaskId} created by {Actor}", item.Id, user.Actor);
@@ -69,6 +84,11 @@ public sealed class TaskService(
             Status = request.Status!.Value,
             UpdatedAt = Now(),
             UpdatedBy = user.Actor,
+            Priority = request.Priority ?? existing.Priority,
+            DueAt = request.DueAt,
+            AssigneeId = NormalizeAssignee(request.AssigneeId),
+            AssigneeName = NormalizeAssignee(request.AssigneeName),
+            Labels = request.Labels is null ? existing.Labels : NormalizeLabels(request.Labels),
         };
 
         if (!await repository.UpdateAsync(updated, cancellationToken))
@@ -145,4 +165,21 @@ public sealed class TaskService(
 
     private static string? NormalizeDescription(string? description)
         => string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+
+    private static string? NormalizeAssignee(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string? NormalizeLabel(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToLowerInvariant();
+
+    // Labels are lower-cased, trimmed, de-duplicated, capped in count and length; an empty one is dropped.
+    public static IReadOnlyList<string> NormalizeLabels(IEnumerable<string>? labels)
+        => labels is null
+            ? []
+            : labels.Select(l => (l ?? "").Trim().ToLowerInvariant())
+                    .Where(l => l.Length > 0)
+                    .Select(l => l.Length > TaskLimits.LabelMaxLength ? l[..TaskLimits.LabelMaxLength] : l)
+                    .Distinct(StringComparer.Ordinal)
+                    .Take(TaskLimits.LabelsMax)
+                    .ToList();
 }

@@ -24,6 +24,16 @@ public sealed class TaskEntity
 
     public uint Version { get; set; }
 
+    public TaskPriority Priority { get; set; } = TaskPriority.Normal;
+
+    public DateTime? DueAtUtc { get; set; }
+
+    public string? AssigneeId { get; set; }
+
+    public string? AssigneeName { get; set; }
+
+    public string[] Labels { get; set; } = [];
+
     public TaskItem ToItem() => new(
         Id,
         Title,
@@ -34,7 +44,12 @@ public sealed class TaskEntity
         CreatedBy,
         UpdatedBy,
         DeletedAtUtc is { } deleted ? Utc(deleted) : null,
-        Version);
+        Version,
+        Priority,
+        DueAtUtc is { } due ? Utc(due) : null,
+        AssigneeId,
+        AssigneeName,
+        Labels);
 
     public static TaskEntity From(TaskItem item) => new()
     {
@@ -47,6 +62,11 @@ public sealed class TaskEntity
         DeletedAtUtc = item.DeletedAt?.UtcDateTime,
         CreatedBy = item.CreatedBy,
         UpdatedBy = item.UpdatedBy,
+        Priority = item.Priority,
+        DueAtUtc = item.DueAt?.UtcDateTime,
+        AssigneeId = item.AssigneeId,
+        AssigneeName = item.AssigneeName,
+        Labels = [.. item.Labels],
     };
 
     public void Apply(TaskItem item)
@@ -57,6 +77,11 @@ public sealed class TaskEntity
         UpdatedAtUtc = item.UpdatedAt.UtcDateTime;
         DeletedAtUtc = item.DeletedAt?.UtcDateTime;
         UpdatedBy = item.UpdatedBy;
+        Priority = item.Priority;
+        DueAtUtc = item.DueAt?.UtcDateTime;
+        AssigneeId = item.AssigneeId;
+        AssigneeName = item.AssigneeName;
+        Labels = [.. item.Labels];
     }
 
     private static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc));

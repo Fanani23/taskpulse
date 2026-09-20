@@ -7,7 +7,7 @@ public interface ITaskRepository
     Task<TaskItem?> GetAsync(Guid id, bool includeDeleted = false, CancellationToken cancellationToken = default);
 
     Task<(IReadOnlyList<TaskItem> Items, int Total)> ListAsync(
-        TaskItemStatus? status, string? search, bool includeDeleted, int page, int pageSize, CancellationToken cancellationToken = default);
+        TaskItemStatus? status, string? search, bool includeDeleted, int page, int pageSize, TaskFilter? filter = null, CancellationToken cancellationToken = default);
 
     Task AddAsync(TaskItem item, CancellationToken cancellationToken = default);
 

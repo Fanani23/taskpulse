@@ -10,4 +10,18 @@ public sealed record CreateTaskRequest
 
     [StringLength(TaskLimits.DescriptionMaxLength, ErrorMessage = "Description must be at most {1} characters.")]
     public string? Description { get; init; }
+
+    public TaskPriority? Priority { get; init; }
+
+    public DateTimeOffset? DueAt { get; init; }
+
+    // A user id from part A (/api/users); AssigneeName is what the UI shows, stored so the list needs no join.
+    [StringLength(64)]
+    public string? AssigneeId { get; init; }
+
+    [StringLength(TaskLimits.AssigneeMaxLength)]
+    public string? AssigneeName { get; init; }
+
+    [MaxLength(TaskLimits.LabelsMax, ErrorMessage = "At most {1} labels.")]
+    public string[]? Labels { get; init; }
 }

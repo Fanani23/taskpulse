@@ -15,12 +15,41 @@ public sealed class PostgresTaskRepository(TasksDbContext db) : ITaskRepository
     }
 
     public async Task<(IReadOnlyList<TaskItem> Items, int Total)> ListAsync(
-        TaskItemStatus? status, string? search, bool includeDeleted, int page, int pageSize, CancellationToken cancellationToken = default)
+        TaskItemStatus? status, string? search, bool includeDeleted, int page, int pageSize, TaskFilter? filter = null, CancellationToken cancellationToken = default)
     {
         var query = Live(includeDeleted);
         if (status is { } wanted)
         {
             query = query.Where(t => t.Status == wanted);
+        }
+
+        if (filter is not null)
+        {
+            if (filter.Priority is { } priority)
+            {
+                query = query.Where(t => t.Priority == priority);
+            }
+
+            if (!string.IsNullOrEmpty(filter.AssigneeId))
+            {
+                query = query.Where(t => t.AssigneeId == filter.AssigneeId);
+            }
+
+            if (!string.IsNullOrEmpty(filter.Label))
+            {
+                var label = filter.Label;
+                query = query.Where(t => t.Labels.Contains(label));
+            }
+
+            var now = filter.Now.UtcDateTime;
+            query = filter.Due switch
+            {
+                TaskDueFilter.Overdue => query.Where(t => t.DueAtUtc != null && t.DueAtUtc < now && t.Status != TaskItemStatus.Done),
+                TaskDueFilter.Today => query.Where(t => t.DueAtUtc != null && t.DueAtUtc >= now.Date && t.DueAtUtc < now.Date.AddDays(1)),
+                TaskDueFilter.Week => query.Where(t => t.DueAtUtc != null && t.DueAtUtc >= now && t.DueAtUtc < now.AddDays(7)),
+                TaskDueFilter.None => query.Where(t => t.DueAtUtc == null),
+                _ => query,
+            };
         }
 
         if (!string.IsNullOrWhiteSpace(search))
@@ -32,8 +61,12 @@ public sealed class PostgresTaskRepository(TasksDbContext db) : ITaskRepository
 
         var total = await query.CountAsync(cancellationToken);
 
+        // Open tasks with a due date first (soonest first), then the rest by creation - the board reads top-down.
         var entities = await query
-            .OrderBy(t => t.CreatedAtUtc)
+            .OrderBy(t => t.Status == TaskItemStatus.Done)
+            .ThenBy(t => t.DueAtUtc == null)
+            .ThenBy(t => t.DueAtUtc)
+            .ThenBy(t => t.CreatedAtUtc)
             .ThenBy(t => t.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
@@ -126,6 +159,10 @@ public sealed class PostgresTaskRepository(TasksDbContext db) : ITaskRepository
             .Take(RecentCount)
             .ToListAsync(cancellationToken);
 
+        var nowUtc = now.UtcDateTime;
+        var overdue = await Live(false).CountAsync(t => t.Status != TaskItemStatus.Done && t.DueAtUtc != null && t.DueAtUtc < nowUtc, cancellationToken);
+        var dueThisWeek = await Live(false).CountAsync(t => t.Status != TaskItemStatus.Done && t.DueAtUtc != null && t.DueAtUtc >= nowUtc && t.DueAtUtc < nowUtc.AddDays(7), cancellationToken);
+
         return new TaskStats(
             total,
             byStatus,
@@ -133,6 +170,8 @@ public sealed class PostgresTaskRepository(TasksDbContext db) : ITaskRepository
             createdPerDay.GetValueOrDefault(today),
             donePerDay.Where(kv => kv.Key >= weekStart).Sum(kv => kv.Value),
             donePerDay.Where(kv => kv.Key >= previousWeekStart && kv.Key < weekStart).Sum(kv => kv.Value),
+            overdue,
+            dueThisWeek,
             oldestOpen is null ? null : Summarize(oldestOpen),
             recent.Select(Summarize).ToList(),
             daily);

@@ -19,6 +19,8 @@ public sealed record TaskStats(
     int CreatedToday,
     int DoneThisWeek,
     int DonePreviousWeek,
+    int Overdue,
+    int DueThisWeek,
     TaskSummary? OldestOpen,
     IReadOnlyList<TaskSummary> RecentlyUpdated,
     IReadOnlyList<DailyTaskCount> Daily);

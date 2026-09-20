@@ -122,11 +122,11 @@ Base path `/api/tasks`. JSON in and out; enums as strings; errors as RFC 9457 `a
 
 | Method | Path | Success | Errors |
 |---|---|---|---|
-| `GET` | `/api/tasks?status=Todo&q=postgres&page=1&pageSize=20` | 200 `{items, page, pageSize, total}` | 400 (`q` > 100 chars) |
+| `GET` | `/api/tasks?status=Todo&q=postgres&priority=High&assignee=me&label=docs&due=overdue&page=1&pageSize=20` | 200 `{items, page, pageSize, total}` — open tasks with a due date first | 400 (`q` > 100 chars) |
 | `GET` | `/api/tasks/stats?days=14` | 200 `{total, byStatus, completionRate, createdToday, doneThisWeek, donePreviousWeek, oldestOpen, recentlyUpdated[], daily[]}` | 400 (`days` ∉ 1–90) |
 | `GET` | `/api/tasks/{id}?includeDeleted=` | 200 + `ETag: W/"<version>"` | 404 |
-| `POST` 🔒 | `/api/tasks` `{title, description?}` | 201 + `Location` | 400 validation, 401 |
-| `PUT` 🔒 | `/api/tasks/{id}` `{title, description?, status}` (+ `If-Match`) | 200 + `ETag` | 400, 401, 404, **412** stale `If-Match` |
+| `POST` 🔒 | `/api/tasks` `{title, description?, priority?, dueAt?, assigneeId?, assigneeName?, labels?}` | 201 + `Location` | 400 validation, 401 |
+| `PUT` 🔒 | `/api/tasks/{id}` `{title, description?, status, priority?, dueAt?, assigneeId?, assigneeName?, labels?}` (+ `If-Match`) — a **replacement**, send the whole task | 200 + `ETag` | 400, 401, 404, **412** stale `If-Match` |
 | `DELETE` 🔒 | `/api/tasks/{id}` · `?permanent=true` (Admin) | 204 — soft delete, restorable · purge | 401, 403, 404 |
 | `POST` 🔒 | `/api/tasks/{id}/restore` | 200 | 401, 404 |
 | `GET` | `/api/audit?resource=task&limit=20` | 200 `[{at, actor, action, resource, kind, targetId, summary}]` | 400 |
@@ -134,10 +134,13 @@ Base path `/api/tasks`. JSON in and out; enums as strings; errors as RFC 9457 `a
 | `GET` | `/metrics` | Prometheus text (loopback only through nginx) | — |
 | `GET` | `/openapi/v1.json` | OpenAPI 3 document (bearer scheme declared) | — |
 
-`status` ∈ `Todo | InProgress | Done`. `q` is a case-insensitive substring match on title and description (LIKE
-wildcards are escaped). `pageSize` is clamped to `Api:MaxPageSize` (100 by default). `/api/tasks/stats` answers
-with three grouped queries (by status, created per day, done per day) — no row is loaded — so a dashboard costs
-one request however many tasks exist.
+`status` ∈ `Todo | InProgress | Done`, `priority` ∈ `Low | Normal | High` (default Normal). `dueAt` is any instant;
+`due` filters `overdue | today | week | none`. `assigneeId` is a user id from part A's `/api/users` (`assignee=me` is
+the caller's own); `assigneeName` is stored with it so lists need no join. `labels`: up to 10, ≤ 32 chars each,
+lower-cased and de-duplicated on write (`label=` filters on one). `q` is a case-insensitive substring match on title
+and description (LIKE wildcards are escaped). `pageSize` is clamped to `Api:MaxPageSize` (100 by default). `/api/tasks/stats` answers
+with three grouped queries (by status, created per day, done per day) plus `overdue` and `dueThisWeek` counts — no
+row is loaded — so a dashboard costs one request however many tasks exist.
 
 ### Authentication, audit, concurrency, limits
 

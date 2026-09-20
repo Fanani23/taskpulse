@@ -36,6 +36,15 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
 
         tasks.Property(t => t.Version).IsRowVersion();
 
+        tasks.Property(t => t.Priority).HasConversion<string>().HasMaxLength(16).HasDefaultValue(TaskPriority.Normal);
+        tasks.Property(t => t.DueAtUtc).HasColumnType("timestamp with time zone");
+        tasks.Property(t => t.AssigneeId).HasMaxLength(64);
+        tasks.Property(t => t.AssigneeName).HasMaxLength(TaskLimits.AssigneeMaxLength);
+        tasks.Property(t => t.Labels).HasColumnType("text[]").HasDefaultValueSql("'{}'");
+        tasks.HasIndex(t => t.DueAtUtc);
+        tasks.HasIndex(t => t.AssigneeId);
+        tasks.HasIndex(t => t.Labels).HasMethod("gin");
+
         tasks.HasIndex(t => t.Status);
         tasks.HasIndex(t => t.CreatedAtUtc);
         tasks.HasIndex(t => t.DeletedAtUtc);
