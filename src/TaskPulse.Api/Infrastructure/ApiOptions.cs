@@ -33,6 +33,9 @@ public sealed class ApiOptions
     [Range(1, 10000)]
     public int WritesPerMinute { get; set; } = 120;
 
+    // Shared secret for POST /api/audit (sign-in events reported by part A, server to server). Empty = ingest disabled.
+    public string? AuditIngestToken { get; set; }
+
     // Where TaskPulse.Realtime accepts change notifications (loopback only). Empty disables the fan-out.
     public string? RealtimeInternalUrl { get; set; }
 

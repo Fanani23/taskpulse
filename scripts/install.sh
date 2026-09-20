@@ -73,11 +73,17 @@ if [[ -z "${TASKPULSE_REDIS_URL+x}" ]] && command -v redis-cli >/dev/null 2>&1 &
   REDIS_URL="127.0.0.1:6379"
 fi
 
+# Shared secret for sign-in events part A reports into the audit trail (POST /api/audit). Kept across re-runs.
+AUDIT_TOKEN="${TASKPULSE_AUDIT_TOKEN:-}"
+if [[ -z "$AUDIT_TOKEN" && -f "$ENV_DIR/api.env" ]]; then AUDIT_TOKEN="$(sed -n 's/^Api__AuditIngestToken=//p' "$ENV_DIR/api.env" | head -1)"; fi
+[[ -n "$AUDIT_TOKEN" ]] || AUDIT_TOKEN="$(head -c 48 /dev/urandom | base64 | tr -d '/+=\n' | head -c 40)"
+
 install -d -m 0755 "$ENV_DIR"
 {
   printf 'ConnectionStrings__Tasks=Host=/var/run/postgresql;Port=%s;Database=%s;Username=%s\n' "$PG_PORT" "$DB_NAME" "$SVC_USER"
   printf 'Api__JwtSecret=%s\n' "$JWT_SECRET"
   printf 'Api__RealtimeInternalUrl=http://127.0.0.1:5090/internal/broadcast\n'
+  printf 'Api__AuditIngestToken=%s\n' "$AUDIT_TOKEN"
   [[ -n "$REDIS_URL" ]] && printf 'Api__RedisUrl=%s\n' "$REDIS_URL"
   i=0
   for origin in ${TASKPULSE_ALLOWED_ORIGINS:-}; do

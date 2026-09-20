@@ -29,6 +29,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         => new NpgsqlConnectionStringBuilder(AdminConnectionString) { Database = databaseName }.ConnectionString;
 
     public const string JwtSecret = "taskpulse-tests-secret-do-not-use-in-production";
+    public const string AuditToken = "tests-audit-ingest-token";
 
     public string UploadDirectory => Path.Combine(Path.GetTempPath(), "taskpulse-tests", DatabaseName);
 
@@ -37,6 +38,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             .UseSetting("ConnectionStrings:Tasks", ConnectionStringFor(DatabaseName))
             .UseSetting("Api:UploadDirectory", UploadDirectory)
             .UseSetting("Api:JwtSecret", JwtSecret)
+            .UseSetting("Api:AuditIngestToken", AuditToken)
             .UseSetting("Api:WritesPerMinute", "1000");
 
     // A client that carries an access token shaped like the one express-template issues (sub, roles, user_meta.email).

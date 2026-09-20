@@ -43,6 +43,7 @@ services:
       Api__JwtSecret: "${TASKPULSE_JWT_SECRET:-compose-only-secret-change-me-32-chars}"
       Api__RealtimeInternalUrl: "http://realtime:8080/internal/broadcast"
       Api__RealtimeInternalToken: "${TASKPULSE_INTERNAL_TOKEN:-compose-internal-token}"
+      Api__AuditIngestToken: "${TASKPULSE_AUDIT_TOKEN:-compose-audit-token}"
       Api__RedisUrl: "redis:6379"
       Api__AllowedOrigins__0: "${TASKPULSE_ALLOWED_ORIGIN:-http://127.0.0.1:8080}"
     volumes:

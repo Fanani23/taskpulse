@@ -24,6 +24,28 @@ public sealed record AuditEntry(
     string TargetId,
     string Summary);
 
+// An event another service reports (part A's sign-ins): the actor is given, not taken from a bearer token.
+public sealed record ExternalAuditEvent
+{
+    [StringLength(AuditLimits.ActorMaxLength)]
+    public string? Actor { get; init; }
+
+    [Required, RegularExpression("^[a-z-]{1,16}$", ErrorMessage = "action must be a short lowercase word.")]
+    public string? Action { get; init; }
+
+    [Required, RegularExpression("^[a-z]{1,32}$", ErrorMessage = "resource must be a short lowercase word.")]
+    public string? Resource { get; init; }
+
+    [StringLength(AuditLimits.KindMaxLength)]
+    public string? Kind { get; init; }
+
+    [Required, StringLength(AuditLimits.TargetMaxLength)]
+    public string? TargetId { get; init; }
+
+    [Required, StringLength(AuditLimits.SummaryMaxLength)]
+    public string? Summary { get; init; }
+}
+
 public sealed record AuditListQuery
 {
     [RegularExpression("^[a-z]{1,32}$", ErrorMessage = "resource must be a short lowercase word.")]

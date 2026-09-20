@@ -120,13 +120,27 @@ public sealed class SecurityAndContractTests(ApiFactory factory) : IClassFixture
         var created = await (await _user.PostAsJsonAsync("/api/tasks", new { title })).Content.ReadFromJsonAsync<TaskItem>(Json);
         await _user.PutAsJsonAsync($"/api/tasks/{created!.Id}", new { title, status = "Done" });
 
-        var entries = await _anonymous.GetFromJsonAsync<List<AuditEntry>>("/api/audit?resource=task&limit=50", Json);
+        // Reading the trail needs a session; it names people.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _anonymous.GetAsync("/api/audit?resource=task")).StatusCode);
+        var entries = await _user.GetFromJsonAsync<List<AuditEntry>>("/api/audit?resource=task&limit=50", Json);
         var mine = entries!.Where(e => e.TargetId == created.Id.ToString()).ToList();
         Assert.Contains(mine, e => e.Action == "create" && e.Actor == "demo@techtest.dev" && e.Summary == title);
         Assert.Contains(mine, e => e.Action == "move" && e.Summary.EndsWith("Done"));
         Assert.True(mine[0].At >= mine[^1].At);
 
-        Assert.Equal(HttpStatusCode.BadRequest, (await _anonymous.GetAsync("/api/audit?limit=0")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _user.GetAsync("/api/audit?limit=0")).StatusCode);
+
+        // Sign-in events reported by part A: ingest needs the internal token, reading them needs Admin.
+        var evt = new { actor = "viewer@techtest.dev", action = "signin-failed", resource = "auth", targetId = "6", summary = "wrong password from 203.0.113.9 (2 attempts left)" };
+        Assert.Equal(HttpStatusCode.Forbidden, (await _anonymous.PostAsJsonAsync("/api/audit", evt)).StatusCode);
+        using var ingest = new HttpRequestMessage(HttpMethod.Post, "/api/audit") { Content = JsonContent.Create(evt) };
+        ingest.Headers.Add("X-Internal-Token", ApiFactory.AuditToken);
+        Assert.Equal(HttpStatusCode.Accepted, (await _anonymous.SendAsync(ingest)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _user.GetAsync("/api/audit?resource=auth")).StatusCode);
+        var auth = await _admin.GetFromJsonAsync<List<AuditEntry>>("/api/audit?resource=auth&limit=5", Json);
+        Assert.Contains(auth!, e => e.Action == "signin-failed" && e.Actor == "viewer@techtest.dev");
+        var everything = await _user.GetFromJsonAsync<List<AuditEntry>>("/api/audit?limit=200", Json);
+        Assert.DoesNotContain(everything!, e => e.Resource == "auth"); // non-admins never see sign-in events, even unfiltered
     }
 
     [Fact]
