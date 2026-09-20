@@ -303,11 +303,18 @@ with the same HS256 secret the API uses (`WebSocket:JwtSecret`, written by `inst
 the broadcast then carries the sender's email as `actor`. Without it an anonymous socket could spam every user.
 The portal's socket bus sends `auth` right after each handshake (and again after a token refresh).
 
+**More than one node:** with `WebSocket:RedisUrl` set, a broadcast is delivered to the receiving node's sockets and
+PUBLISHed on `taskpulse:broadcast`; every other node relays it to its own sockets (the payload carries the sending
+node's id, so a node never delivers its own message twice). Change events already come to every node through the
+stream, so with Redis any number of Realtime instances behind a load balancer behave as one server. Without Redis a
+broadcast stays on the node that received it.
+
 **Limits, per connection:** `WebSocket:MessagesPerMinute` (120) — past it every message is answered with an `error`,
 past twice it the server closes with **1008**; `WebSocket:BroadcastsPerMinute` (30); 64 KiB per message (close code
 1009 beyond that); 30 s server-side keep-alive pings.
 
-`GET /stats` lists live connections (with `user` once authenticated). `GET /health` for probes. `GET /` is a
+`GET /stats` lists live connections (with `user` once authenticated), this node's id, whether Redis is attached, and
+the counts of broadcasts relayed in from other nodes and change-stream entries fanned out. `GET /health` for probes. `GET /` is a
 dependency-free console page (its script and stylesheet are separate files so the CSP can forbid inline code).
 
 ## Load figures
@@ -408,11 +415,13 @@ TaskPulse.Api.Tests   44 passed   tasks: CRUD round-trip (re-read after update),
                                      change stream: a write lands in the Redis stream with the actor (needs Redis)
                                      webhooks: non-Admin 403, plain-http URL 400, signed delivery with the actor,
                                        resource filter, 3 attempts on 503 logged + failure count, off = no deliveries
-TaskPulse.Realtime.Tests   8 passed   welcome/echo/pong, anonymous broadcast refused → auth (bad / expired / valid
+TaskPulse.Realtime.Tests   9 passed   welcome/echo/pong, anonymous broadcast refused → auth (bad / expired / valid
                                        token) → broadcast to two clients with the actor, rate limits (error, then 1008),
                                        raw text + bad JSON, plain GET on /ws is 400, /stats + /health,
                                        /internal/broadcast fans out `changed` (and refuses a forwarded request),
-                                       stream entry → `changed` on every socket + cursor persisted (needs Redis)
+                                       stream entry → `changed` on every socket + cursor persisted (needs Redis),
+                                       a broadcast on node A reaches a socket on node B once, with the actor; A's
+                                       own socket gets it once; B's /stats counts the relay (needs Redis)
 ```
 
 All are integration tests through `WebApplicationFactory<Program>` — real routing, JSON, middleware, the real

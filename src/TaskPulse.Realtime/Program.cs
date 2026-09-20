@@ -23,6 +23,8 @@ builder.Services.AddSingleton<ConnectionManager>();
 builder.Services.AddSingleton<TokenValidator>();
 builder.Services.AddSingleton<MessageRouter>();
 builder.Services.AddSingleton<ChangeStreamReader>();
+builder.Services.AddSingleton<NodeBus>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NodeBus>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ChangeStreamReader>());
 builder.Services.AddScoped<WebSocketSession>();
 builder.Services.AddHealthChecks();

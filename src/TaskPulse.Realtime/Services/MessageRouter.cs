@@ -6,7 +6,7 @@ using TaskPulse.Realtime.Models;
 
 namespace TaskPulse.Realtime.Services;
 
-public sealed class MessageRouter(ConnectionManager connections, TokenValidator tokens, IOptions<WsOptions> options, ILogger<MessageRouter> logger)
+public sealed class MessageRouter(ConnectionManager connections, TokenValidator tokens, NodeBus nodes, IOptions<WsOptions> options, ILogger<MessageRouter> logger)
 {
     public async Task RouteAsync(WsConnection sender, string text, CancellationToken cancellationToken)
     {
@@ -106,5 +106,6 @@ public sealed class MessageRouter(ConnectionManager connections, TokenValidator 
 
         logger.LogInformation("Broadcast from {ConnectionId} ({Actor}) to {Recipients} connection(s)", sender.Id, sender.Identity.Actor, connections.Count);
         await connections.BroadcastAsync(ServerMessage.Broadcast(sender.Id, data, sender.Identity.Actor), exceptId: null, cancellationToken);
+        await nodes.PublishAsync(sender.Id, data, sender.Identity.Actor, cancellationToken); // and to every other node's sockets
     }
 }

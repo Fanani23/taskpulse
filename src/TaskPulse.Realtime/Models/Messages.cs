@@ -71,4 +71,8 @@ public sealed record ServerStats(
     int Connections,
     DateTimeOffset StartedAt,
     double UptimeSeconds,
-    IReadOnlyList<ConnectionStats> Clients);
+    IReadOnlyList<ConnectionStats> Clients,
+    string? Node = null,
+    bool Redis = false,
+    long RelayedBroadcasts = 0,
+    long StreamEventsDelivered = 0);
