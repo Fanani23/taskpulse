@@ -134,6 +134,7 @@ Base path `/api/tasks`. JSON in and out; enums as strings; errors as RFC 9457 `a
 | `GET` | `/api/tasks/export.csv?…same filters…` | 200 `text/csv` (id, title, description, status, priority, dueAt, assigneeId, assigneeName, labels, createdAt, updatedAt) | — |
 | `POST` 🔒 | `/api/tasks/import` (body `text/csv` or multipart `file`) | 200 `{created, updated, skipped:[{row, error}]}` — `title` required, an existing `id` is updated, labels `a\|b`, ≤ 2000 rows; bad rows are reported, the rest go through | 400, 401 |
 | `GET` | `/api/catalog/{kind}/export.csv` · `POST` 🔒 `/api/catalog/{kind}/import` | same shape for a kind (code, label, parents `a\|b`, attributes JSON, sort); an existing `code` is updated | 400, 401 |
+| `GET/POST` 🔒 Admin | `/api/webhooks` `{url, secret (16–200), resources?: ["task","catalog","upload","preferences"], description?}` · `GET/PUT/DELETE …/{id}` · `GET …/{id}/deliveries` | 201 the hook (never the secret); `PUT` changes url / secret / resources / active; the newest 50 deliveries `{at, event, attempts, status, error, delivered}` | 400 (plain `http` only on loopback), 401, 403, 404 |
 | `GET` | `/health` · `/health/ready` | 200 `Healthy` | 503 |
 | `GET` | `/metrics` | Prometheus text (loopback only through nginx) | — |
 | `GET` | `/openapi/v1.json` | OpenAPI 3 document (bearer scheme declared) | — |
@@ -178,6 +179,14 @@ channel: a write never waits for the socket server. Two transports, chosen by co
   is back**, and any number of Realtime nodes can follow the same stream.
 - **Loopback HTTP** (`Api:RealtimeInternalUrl`, the fallback without Redis): `POST /internal/broadcast`, loopback-only;
   nginx returns 404 for `/internal/`; a shared `X-Internal-Token` covers a split host without Redis.
+
+**Outgoing webhooks** — an Admin registers URLs (`POST /api/webhooks`) and every change event is POSTed to each active
+hook that wants that resource: JSON `{event:"task.create", at, resource, action, id, kind, actor}` with
+`X-TaskPulse-Event` and `X-TaskPulse-Signature: sha256=<HMAC-SHA256 of the body with the hook's secret>`, so a receiver
+can verify the sender without a shared session. Three attempts (1 s, 4 s apart, 5 s timeout each), every hook in
+parallel, and each outcome is logged (`…/deliveries`, newest 50 kept); a hook that fails 20 deliveries in a row is
+switched off so a dead endpoint stops costing retries. The same bounded channel as the socket fan-out: a write never
+waits for a webhook, and a hook deleted while its retries were running is simply skipped.
 
 **Metrics** — `/metrics` (prometheus-net: request counts, durations, in-flight) for scraping from the box.
 
@@ -354,7 +363,7 @@ run it against `:8088` to watch the edge limiter instead.
 ## Tests
 
 ```
-TaskPulse.Api.Tests   36 passed   tasks: CRUD round-trip (re-read after update), data survives a process restart,
+TaskPulse.Api.Tests   40 passed   tasks: CRUD round-trip (re-read after update), data survives a process restart,
                                        concurrent updates, validation 400, bad enum 400, 404, page-size clamp,
                                        q search + LIKE escaping, stats shape and range check, CORS allow-list,
                                        health, correlation id, OpenAPI
@@ -368,6 +377,8 @@ TaskPulse.Api.Tests   36 passed   tasks: CRUD round-trip (re-read after update),
                                        429 with Retry-After past the write limit, catalog paging headers,
                                        schema refused when items violate it then enforced on create
                                      change stream: a write lands in the Redis stream with the actor (needs Redis)
+                                     webhooks: non-Admin 403, plain-http URL 400, signed delivery with the actor,
+                                       resource filter, 3 attempts on 503 logged + failure count, off = no deliveries
 TaskPulse.Realtime.Tests   8 passed   welcome/echo/pong, anonymous broadcast refused → auth (bad / expired / valid
                                        token) → broadcast to two clients with the actor, rate limits (error, then 1008),
                                        raw text + bad JSON, plain GET on /ws is 400, /stats + /health,

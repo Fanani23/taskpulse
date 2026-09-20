@@ -19,11 +19,32 @@ public interface IChangePublisher
 // overflow the oldest event is dropped (clients re-read state anyway).
 public sealed class ChangePublisher : IChangePublisher
 {
-    private readonly Channel<ChangeEvent> _channel = Channel.CreateBounded<ChangeEvent>(new BoundedChannelOptions(256) { FullMode = BoundedChannelFullMode.DropOldest });
+    private readonly List<Channel<ChangeEvent>> _subscribers = [];
+    private readonly Lock _gate = new();
 
-    public ChannelReader<ChangeEvent> Reader => _channel.Reader;
+    // Every subscriber (the Realtime forwarder, the webhook dispatcher, …) gets its own bounded channel, so a slow
+    // one drops its own oldest events and never blocks the others.
+    public ChannelReader<ChangeEvent> Subscribe()
+    {
+        var channel = Channel.CreateBounded<ChangeEvent>(new BoundedChannelOptions(256) { FullMode = BoundedChannelFullMode.DropOldest });
+        lock (_gate)
+        {
+            _subscribers.Add(channel);
+        }
 
-    public void Publish(ChangeEvent change) => _channel.Writer.TryWrite(change);
+        return channel.Reader;
+    }
+
+    public void Publish(ChangeEvent change)
+    {
+        lock (_gate)
+        {
+            foreach (var channel in _subscribers)
+            {
+                channel.Writer.TryWrite(change);
+            }
+        }
+    }
 }
 
 // Two transports, picked by configuration:
@@ -70,7 +91,7 @@ public sealed class ChangeForwarder(
         logger.LogInformation("Change fan-out through Redis stream {Stream} ({Endpoint})", StreamKey, redisUrl);
 
         var failures = 0;
-        await foreach (var change in publisher.Reader.ReadAllAsync(stoppingToken))
+        await foreach (var change in publisher.Subscribe().ReadAllAsync(stoppingToken))
         {
             try
             {
@@ -97,7 +118,7 @@ public sealed class ChangeForwarder(
         }
 
         var failures = 0;
-        await foreach (var change in publisher.Reader.ReadAllAsync(stoppingToken))
+        await foreach (var change in publisher.Subscribe().ReadAllAsync(stoppingToken))
         {
             try
             {

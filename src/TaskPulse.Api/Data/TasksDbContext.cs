@@ -17,6 +17,10 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
 
     public DbSet<AuditEntity> Audit => Set<AuditEntity>();
 
+    public DbSet<WebhookEntity> Webhooks => Set<WebhookEntity>();
+
+    public DbSet<WebhookDeliveryEntity> WebhookDeliveries => Set<WebhookDeliveryEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         var tasks = modelBuilder.Entity<TaskEntity>();
@@ -100,6 +104,27 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
         uploads.Property(u => u.CreatedAtUtc).HasColumnType("timestamp with time zone");
         uploads.HasIndex(u => u.CreatedAtUtc);
         uploads.HasIndex(u => u.Source);
+
+        var hooks = modelBuilder.Entity<WebhookEntity>();
+        hooks.ToTable("webhooks");
+        hooks.HasKey(h => h.Id);
+        hooks.Property(h => h.Url).HasMaxLength(WebhookLimits.UrlMaxLength).IsRequired();
+        hooks.Property(h => h.Secret).HasMaxLength(WebhookLimits.SecretMaxLength).IsRequired();
+        hooks.Property(h => h.Resources).HasColumnType("text[]").HasDefaultValueSql("'{}'");
+        hooks.Property(h => h.Description).HasMaxLength(WebhookLimits.DescriptionMaxLength);
+        hooks.Property(h => h.CreatedAtUtc).HasColumnType("timestamp with time zone");
+        hooks.Property(h => h.LastAttemptAtUtc).HasColumnType("timestamp with time zone");
+        hooks.Property(h => h.CreatedBy).HasMaxLength(AuditLimits.ActorMaxLength);
+
+        var deliveries = modelBuilder.Entity<WebhookDeliveryEntity>();
+        deliveries.ToTable("webhook_deliveries");
+        deliveries.HasKey(d => d.Id);
+        deliveries.Property(d => d.Id).UseIdentityAlwaysColumn();
+        deliveries.Property(d => d.AtUtc).HasColumnType("timestamp with time zone");
+        deliveries.Property(d => d.Event).HasMaxLength(64).IsRequired();
+        deliveries.Property(d => d.Payload).HasColumnType("jsonb").IsRequired();
+        deliveries.Property(d => d.Error).HasMaxLength(300);
+        deliveries.HasIndex(d => new { d.WebhookId, d.Id });
 
         var audit = modelBuilder.Entity<AuditEntity>();
         audit.ToTable("audit");

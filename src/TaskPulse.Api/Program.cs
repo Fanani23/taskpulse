@@ -139,6 +139,9 @@ builder.Services.AddSingleton<ChangePublisher>();
 builder.Services.AddSingleton<IChangePublisher>(sp => sp.GetRequiredService<ChangePublisher>());
 builder.Services.AddHttpClient(ChangeForwarder.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(3));
 builder.Services.AddHostedService<ChangeForwarder>();
+builder.Services.AddHttpClient(WebhookDispatcher.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(5));
+builder.Services.AddSingleton<WebhookDispatcher>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<WebhookDispatcher>());
 
 builder.Services.AddHealthChecks()
     .AddCheck<TaskStoreHealthCheck>("task-store", tags: ["ready"]);
