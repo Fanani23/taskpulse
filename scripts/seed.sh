@@ -180,6 +180,9 @@ seed_catalog types 'online|Online|||1
 promotion|Promotion|||2
 offline|Offline|||3'
 
+seed_catalog resources 'sponsor|Sponsor|||1
+venue|Venue|||2'
+
 seed_catalog tags 'content-1|content 1||{"selected":true}|1
 content-2|content 2||{"selected":false}|2
 content-3|content 3||{"selected":true}|3
