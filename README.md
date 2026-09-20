@@ -173,7 +173,7 @@ channel: a write never waits for the socket server. Two transports, chosen by co
 
 ### Catalog — reference data with CRUD (`/api/catalog`)
 
-Every list the portal (part A) used to hard-code — regions, countries, states, places on the map, team members,
+Every list the portal (part A) used to hard-code — regions, countries, states, places on the map,
 links, form options, tags — is a *kind* here. An item has a `code` unique within its kind, a `label`, optional
 `parents` (codes of another kind, for cascades), free-form `attributes` (a JSON object, ≤ 4 KB, e.g.
 `{"lat": -6.2, "lng": 106.8}`) and a `sort` order.

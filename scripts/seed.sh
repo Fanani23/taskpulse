@@ -166,11 +166,6 @@ malang|Malang||{"lat":-7.9666,"lng":112.6326,"detail":"Where this submission was
 singapore|Singapore||{"lat":1.3521,"lng":103.8198,"detail":"Nearest large cloud region (ap-southeast-1)"}|3
 surabaya|Surabaya||{"lat":-7.2575,"lng":112.7521,"detail":"East Java capital"}|4'
 
-seed_catalog members 'faith|Faith||{"title":"Full-stack Dev"}|1
-hope|Hope||{"title":"Data Scientist"}|2
-charity|Charity||{"title":"Data Engineer"}|3
-love|Love||{"title":"Data Scientist"}|4'
-
 seed_catalog links 'taskpulse-openapi|TaskPulse OpenAPI||{"url":"/openapi/v1.json"}|1
 express-template|es-labs/express-template||{"url":"https://github.com/es-labs/express-template"}|2
 vue-antd-template|es-labs/vue-antd-template||{"url":"https://github.com/es-labs/vue-antd-template"}|3
