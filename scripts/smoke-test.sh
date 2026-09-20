@@ -37,6 +37,10 @@ check "GET  /health/ready"         200 "$API/health/ready"
 check "GET  /openapi/v1.json"      200 "$API/openapi/v1.json"
 check "GET  /api/tasks (empty ok)" 200 "$API/api/tasks"
 
+# Writes are protected: the same request without a token is refused.
+got=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/api/tasks" -H 'Content-Type: application/json' -d '{"title":"anonymous"}')
+[[ "$got" == "401" ]] && pass "POST /api/tasks (no token -> 401)" || fail "POST /api/tasks without a token -> $got (expected 401)"
+
 check "POST /api/tasks (create)"   201 -X POST "$API/api/tasks" -H 'Content-Type: application/json' \
       -d '{"title":"Smoke test task","description":"created by smoke-test.sh"}'
 ID=$(sed -E 's/.*"id":"([^"]+)".*/\1/' /tmp/smoke-body)
