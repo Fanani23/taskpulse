@@ -165,6 +165,54 @@ public sealed class TasksControllerTests(ApiFactory factory) : IClassFixture<Api
         Assert.True(doc.GetProperty("paths").TryGetProperty("/api/tasks", out _));
     }
     [Fact]
+    public async Task Search_matches_title_and_description_case_insensitively()
+    {
+        var marker = Guid.NewGuid().ToString("N")[..8];
+        await _client.PostAsJsonAsync("/api/tasks", new { title = $"{marker} PostgreSQL upgrade" });
+        await _client.PostAsJsonAsync("/api/tasks", new { title = $"Unrelated {marker}", description = $"mentions {marker} postgresql in the body" });
+        await _client.PostAsJsonAsync("/api/tasks", new { title = $"Nothing here {marker}" });
+
+        var page = await _client.GetFromJsonAsync<PagedResponse<TaskItem>>($"/api/tasks?q={marker}%20POSTGRES&pageSize=50", Json);
+        Assert.NotNull(page);
+        Assert.Equal(2, page.Total);
+        Assert.All(page.Items, item => Assert.Contains(marker, item.Title + item.Description));
+
+        var escaped = await _client.GetFromJsonAsync<PagedResponse<TaskItem>>("/api/tasks?q=%25&pageSize=1", Json);
+        Assert.Equal(0, escaped!.Total);
+
+        var tooLong = await _client.GetAsync("/api/tasks?q=" + new string('a', TaskLimits.SearchMaxLength + 1));
+        Assert.Equal(HttpStatusCode.BadRequest, tooLong.StatusCode);
+    }
+
+    [Fact]
+    public async Task Stats_reflect_status_counts_and_daily_activity()
+    {
+        var open = await (await _client.PostAsJsonAsync("/api/tasks", new { title = "Stats open" })).Content.ReadFromJsonAsync<TaskItem>(Json);
+        var done = await (await _client.PostAsJsonAsync("/api/tasks", new { title = "Stats done" })).Content.ReadFromJsonAsync<TaskItem>(Json);
+        await _client.PutAsJsonAsync($"/api/tasks/{done!.Id}", new { title = "Stats done", status = "Done" });
+
+        var stats = await _client.GetFromJsonAsync<TaskStats>("/api/tasks/stats?days=7", Json);
+        Assert.NotNull(stats);
+        Assert.Equal(7, stats.Daily.Count);
+        Assert.Equal(stats.Total, stats.ByStatus.Values.Sum());
+        Assert.True(stats.ByStatus[TaskItemStatus.Done] >= 1);
+        Assert.True(stats.CreatedToday >= 2);
+        Assert.True(stats.DoneThisWeek >= 1);
+        Assert.Equal(DateOnly.FromDateTime(DateTime.UtcNow), stats.Daily[^1].Date);
+        Assert.True(stats.Daily[^1].Created >= 2);
+        Assert.InRange(stats.CompletionRate, 0, 1);
+        Assert.NotNull(stats.OldestOpen);
+        Assert.NotEqual(TaskItemStatus.Done, stats.OldestOpen.Status);
+        Assert.True(stats.OldestOpen.CreatedAt <= open!.CreatedAt);
+
+        var defaults = await _client.GetFromJsonAsync<TaskStats>("/api/tasks/stats", Json);
+        Assert.Equal(TaskLimits.StatsDefaultDays, defaults!.Daily.Count);
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.GetAsync("/api/tasks/stats?days=0")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.GetAsync("/api/tasks/stats?days=91")).StatusCode);
+    }
+
+    [Fact]
     public async Task Cross_origin_requests_are_refused_unless_the_origin_is_allowed()
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/tasks");

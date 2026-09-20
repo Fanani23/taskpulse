@@ -7,7 +7,7 @@ public interface ITaskRepository
     Task<TaskItem?> GetAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task<(IReadOnlyList<TaskItem> Items, int Total)> ListAsync(
-        TaskItemStatus? status, int page, int pageSize, CancellationToken cancellationToken = default);
+        TaskItemStatus? status, string? search, int page, int pageSize, CancellationToken cancellationToken = default);
 
     Task AddAsync(TaskItem item, CancellationToken cancellationToken = default);
 
@@ -16,4 +16,6 @@ public interface ITaskRepository
     Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task<int> CountAsync(CancellationToken cancellationToken = default);
+
+    Task<TaskStats> GetStatsAsync(DateTimeOffset now, int days, CancellationToken cancellationToken = default);
 }

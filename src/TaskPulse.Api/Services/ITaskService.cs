@@ -8,6 +8,8 @@ public interface ITaskService
 
     Task<TaskItem?> GetAsync(Guid id, CancellationToken cancellationToken = default);
 
+    Task<TaskStats> GetStatsAsync(TaskStatsQuery query, CancellationToken cancellationToken = default);
+
     Task<TaskItem> CreateAsync(CreateTaskRequest request, CancellationToken cancellationToken = default);
 
     Task<TaskItem?> UpdateAsync(Guid id, UpdateTaskRequest request, CancellationToken cancellationToken = default);

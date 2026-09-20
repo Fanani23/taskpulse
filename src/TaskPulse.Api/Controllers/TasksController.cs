@@ -10,10 +10,17 @@ namespace TaskPulse.Api.Controllers;
 public sealed class TasksController(ITaskService tasks) : ControllerBase
 {
     [HttpGet(Name = "ListTasks")]
-    [EndpointSummary("List tasks (paged, optional status filter).")]
+    [EndpointSummary("List tasks (paged; optional status filter and q text search on title and description).")]
     [ProducesResponseType<PagedResponse<TaskItem>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResponse<TaskItem>>> List([FromQuery] TaskListQuery query, CancellationToken cancellationToken)
         => Ok(await tasks.ListAsync(query, cancellationToken));
+
+    [HttpGet("stats", Name = "TaskStats")]
+    [EndpointSummary("Counts by status, completion rate, and created/done per day for the last N days (default 14, max 90).")]
+    [ProducesResponseType<TaskStats>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<TaskStats>> Stats([FromQuery] TaskStatsQuery query, CancellationToken cancellationToken)
+        => Ok(await tasks.GetStatsAsync(query, cancellationToken));
 
     [HttpGet("{id:guid}", Name = "GetTask")]
     [EndpointSummary("Get a single task.")]

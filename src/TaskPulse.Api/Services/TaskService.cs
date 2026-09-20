@@ -16,12 +16,15 @@ public sealed class TaskService(
         var page = Math.Max(query.Page ?? 1, 1);
         var pageSize = Math.Clamp(query.PageSize ?? options.Value.DefaultPageSize, 1, options.Value.MaxPageSize);
 
-        var (items, total) = await repository.ListAsync(query.Status, page, pageSize, cancellationToken);
+        var (items, total) = await repository.ListAsync(query.Status, query.Q, page, pageSize, cancellationToken);
         return new PagedResponse<TaskItem>(items, page, pageSize, total);
     }
 
     public Task<TaskItem?> GetAsync(Guid id, CancellationToken cancellationToken = default)
         => repository.GetAsync(id, cancellationToken);
+
+    public Task<TaskStats> GetStatsAsync(TaskStatsQuery query, CancellationToken cancellationToken = default)
+        => repository.GetStatsAsync(clock.GetUtcNow(), query.Days ?? TaskLimits.StatsDefaultDays, cancellationToken);
 
     public async Task<TaskItem> CreateAsync(CreateTaskRequest request, CancellationToken cancellationToken = default)
     {
