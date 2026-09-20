@@ -43,8 +43,9 @@ public sealed class TasksController(ITaskService tasks) : ControllerBase
 
     [HttpPost(Name = "CreateTask")]
     [Authorize]
+    [Idempotent]
     [EnableRateLimiting(RateLimits.Writes)]
-    [EndpointSummary("Create a task (status starts as Todo). Requires a bearer token from the Vue + Express sign-in.")]
+    [EndpointSummary("Create a task (status starts as Todo). Requires a bearer token from the Vue + Express sign-in. Send Idempotency-Key to make a retry return the first result instead of a second task.")]
     [ProducesResponseType<TaskItem>(StatusCodes.Status201Created)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]

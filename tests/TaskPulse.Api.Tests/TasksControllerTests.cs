@@ -299,5 +299,15 @@ public sealed class TasksControllerTests(ApiFactory factory) : IClassFixture<Api
         allowedRequest.Headers.Add("Origin", "https://portal.example");
         var allowedResponse = await allowed.CreateClient().SendAsync(allowedRequest);
         Assert.Equal("https://portal.example", allowedResponse.Headers.GetValues("Access-Control-Allow-Origin").Single());
+
+        // a preflight for a create with an Idempotency-Key is allowed, and the replay marker is readable by the page
+        using var preflight = new HttpRequestMessage(HttpMethod.Options, "/api/tasks");
+        preflight.Headers.Add("Origin", "https://portal.example");
+        preflight.Headers.Add("Access-Control-Request-Method", "POST");
+        preflight.Headers.Add("Access-Control-Request-Headers", "content-type,authorization,idempotency-key");
+        var preflightResponse = await allowed.CreateClient().SendAsync(preflight);
+        Assert.Equal(HttpStatusCode.NoContent, preflightResponse.StatusCode);
+        Assert.Contains("Idempotency-Key", preflightResponse.Headers.GetValues("Access-Control-Allow-Headers").Single());
+        Assert.Contains("Idempotent-Replayed", allowedResponse.Headers.GetValues("Access-Control-Expose-Headers").Single());
     }
 }

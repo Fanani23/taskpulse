@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using TaskPulse.Api.Infrastructure;
 using TaskPulse.Api.Models;
 
 namespace TaskPulse.Api.Data;
@@ -16,6 +17,8 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
     public DbSet<UploadEntity> Uploads => Set<UploadEntity>();
 
     public DbSet<AuditEntity> Audit => Set<AuditEntity>();
+
+    public DbSet<IdempotencyKeyEntity> IdempotencyKeys => Set<IdempotencyKeyEntity>();
 
     public DbSet<WebhookEntity> Webhooks => Set<WebhookEntity>();
 
@@ -105,6 +108,19 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
         uploads.Property(u => u.CreatedAtUtc).HasColumnType("timestamp with time zone");
         uploads.HasIndex(u => u.CreatedAtUtc);
         uploads.HasIndex(u => u.Source);
+
+        var keys = modelBuilder.Entity<IdempotencyKeyEntity>();
+        keys.ToTable("idempotency_keys");
+        keys.HasKey(k => k.Id);
+        keys.Property(k => k.Id).UseIdentityAlwaysColumn();
+        keys.Property(k => k.Scope).HasMaxLength(300).IsRequired();
+        keys.Property(k => k.Key).HasMaxLength(IdempotencyLimits.KeyMaxLength).IsRequired();
+        keys.Property(k => k.Fingerprint).HasMaxLength(64).IsRequired();
+        keys.Property(k => k.CreatedAtUtc).HasColumnType("timestamp with time zone");
+        keys.Property(k => k.ContentType).HasMaxLength(64);
+        keys.Property(k => k.Location).HasMaxLength(512);
+        keys.HasIndex(k => new { k.Scope, k.Key }).IsUnique();
+        keys.HasIndex(k => k.CreatedAtUtc);
 
         var hooks = modelBuilder.Entity<WebhookEntity>();
         hooks.ToTable("webhooks");

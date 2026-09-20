@@ -43,6 +43,7 @@ public sealed class UploadsController(IUploadService uploads) : ControllerBase
 
     [HttpPost(Name = "CreateUploads")]
     [Authorize]
+    [Idempotent]
     [EnableRateLimiting(RateLimits.Writes)]
     [EndpointSummary("Store one or more files (multipart/form-data: files[], optional source tag and note).")]
     [Consumes("multipart/form-data")]

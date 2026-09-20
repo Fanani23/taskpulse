@@ -52,6 +52,7 @@ public sealed class CatalogController(ICatalogService catalog) : ControllerBase
 
     [HttpPost(KindRoute, Name = "CreateCatalogItem")]
     [Authorize]
+    [Idempotent]
     [EnableRateLimiting(RateLimits.Writes)]
     [EndpointSummary("Create an item; the code is derived from the label when omitted. 409 when the code exists; 400 when the kind has a schema the attributes violate.")]
     [ProducesResponseType<CatalogItem>(StatusCodes.Status201Created)]

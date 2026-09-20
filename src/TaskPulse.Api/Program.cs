@@ -44,8 +44,8 @@ builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
     {
         policy.WithOrigins(origins)
             .WithMethods("GET", "POST", "PUT", "DELETE")
-            .WithHeaders("Content-Type", "Authorization", "If-Match")
-            .WithExposedHeaders("Location", "ETag", "X-Total-Count", "X-Page", "X-Page-Size", "Retry-After");
+            .WithHeaders("Content-Type", "Authorization", "If-Match", IdempotencyLimits.Header)
+            .WithExposedHeaders("Location", "ETag", "X-Total-Count", "X-Page", "X-Page-Size", "Retry-After", IdempotencyLimits.ReplayedHeader);
     }
 }));
 builder.Services.AddProblemDetails();

@@ -171,6 +171,14 @@ them, `POST …/restore` brings one back, and `?permanent=true` (Admin role) pur
 `If-Match` on `PUT` and a stale value is refused with **412** instead of overwriting someone else's change (`xmin` also
 guards the database itself). Without `If-Match` the last write wins, as before.
 
+**Idempotency keys** — a create (`POST /api/tasks`, `/api/catalog/{kind}`, `/api/uploads`) sent with
+`Idempotency-Key: <client-chosen id>` is remembered for 24 hours per caller and route: a repeat gets the first
+answer back (same status, body and `Location`, plus `Idempotent-Replayed: true`) instead of a second row, the same
+key with a different body is **422**, and two requests racing on one key answer **409** to the loser. Keys live in
+the database (`idempotency_keys`, unique on scope + key), so they survive restarts and are shared by every node; the
+portal's clients send one on every create and retry a dropped connection once with the same key. Without the header
+nothing changes.
+
 **Rate limit** — writes are limited per client address (`Api:WritesPerMinute`, default 120/min, fixed window); the 121st
 answers **429** problem+json with `Retry-After`. Reads are not limited.
 
@@ -367,7 +375,7 @@ run it against `:8088` to watch the edge limiter instead.
 ## Tests
 
 ```
-TaskPulse.Api.Tests   40 passed   tasks: CRUD round-trip (re-read after update), data survives a process restart,
+TaskPulse.Api.Tests   43 passed   tasks: CRUD round-trip (re-read after update), data survives a process restart,
                                        concurrent updates, validation 400, bad enum 400, 404, page-size clamp,
                                        q search + LIKE escaping, stats shape and range check, CORS allow-list,
                                        health, correlation id, OpenAPI
@@ -384,6 +392,9 @@ TaskPulse.Api.Tests   40 passed   tasks: CRUD round-trip (re-read after update),
                                      catalog history: create + update rows with the label / sort / per-attribute diff,
                                        a no-op update stores no diff, anonymous 401
                                      priority Low (the enum's CLR default) is stored, not swallowed by a column default
+                                     idempotency: replay with Location + marker, 422 on another body, per caller and
+                                       per route, key freed after a validation 400, >128 chars 400, uploads once,
+                                       CORS preflight allows the header and exposes the marker
                                      change stream: a write lands in the Redis stream with the actor (needs Redis)
                                      webhooks: non-Admin 403, plain-http URL 400, signed delivery with the actor,
                                        resource filter, 3 attempts on 503 logged + failure count, off = no deliveries
