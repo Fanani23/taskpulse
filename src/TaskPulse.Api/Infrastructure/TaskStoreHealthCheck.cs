@@ -1,6 +1,6 @@
-using TaskPulse.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using TaskPulse.Api.Data;
 
 namespace TaskPulse.Api.Infrastructure;
 

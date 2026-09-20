@@ -1,7 +1,7 @@
+using Microsoft.Extensions.Options;
 using TaskPulse.Api.Infrastructure;
 using TaskPulse.Api.Models;
 using TaskPulse.Api.Repositories;
-using Microsoft.Extensions.Options;
 
 namespace TaskPulse.Api.Services;
 

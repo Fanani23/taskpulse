@@ -1,11 +1,11 @@
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using TaskPulse.Api.Data;
 using TaskPulse.Api.Infrastructure;
 using TaskPulse.Api.Repositories;
 using TaskPulse.Api.Services;
-using Microsoft.AspNetCore.HttpOverrides;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 

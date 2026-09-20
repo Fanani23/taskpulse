@@ -1,8 +1,8 @@
-using Microsoft.AspNetCore.Hosting;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Hosting;
 using TaskPulse.Api.Infrastructure;
 using TaskPulse.Api.Models;
 using Xunit;

@@ -1,5 +1,5 @@
-using TaskPulse.Realtime.Models;
 using System.Text.Json;
+using TaskPulse.Realtime.Models;
 
 namespace TaskPulse.Realtime.Services;
 

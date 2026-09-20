@@ -1,6 +1,6 @@
+using Microsoft.Extensions.Options;
 using TaskPulse.Realtime.Infrastructure;
 using TaskPulse.Realtime.Services;
-using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 

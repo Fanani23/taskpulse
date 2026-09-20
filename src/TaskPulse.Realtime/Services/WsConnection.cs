@@ -1,6 +1,6 @@
-using TaskPulse.Realtime.Models;
 using System.Net.WebSockets;
 using System.Text;
+using TaskPulse.Realtime.Models;
 
 namespace TaskPulse.Realtime.Services;
 

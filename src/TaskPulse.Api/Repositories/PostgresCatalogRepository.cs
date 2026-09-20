@@ -1,7 +1,7 @@
-using TaskPulse.Api.Data;
-using TaskPulse.Api.Models;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using TaskPulse.Api.Data;
+using TaskPulse.Api.Models;
 
 namespace TaskPulse.Api.Repositories;
 

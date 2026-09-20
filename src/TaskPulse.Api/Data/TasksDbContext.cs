@@ -1,5 +1,5 @@
-using TaskPulse.Api.Models;
 using Microsoft.EntityFrameworkCore;
+using TaskPulse.Api.Models;
 
 namespace TaskPulse.Api.Data;
 

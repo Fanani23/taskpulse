@@ -1,5 +1,5 @@
-using TaskPulse.Realtime.Services;
 using Microsoft.AspNetCore.Mvc;
+using TaskPulse.Realtime.Services;
 
 namespace TaskPulse.Realtime.Controllers;
 

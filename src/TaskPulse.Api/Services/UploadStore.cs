@@ -1,5 +1,5 @@
-using TaskPulse.Api.Infrastructure;
 using Microsoft.Extensions.Options;
+using TaskPulse.Api.Infrastructure;
 
 namespace TaskPulse.Api.Services;
 

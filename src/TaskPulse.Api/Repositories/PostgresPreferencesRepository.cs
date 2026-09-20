@@ -1,6 +1,6 @@
+using Microsoft.EntityFrameworkCore;
 using TaskPulse.Api.Data;
 using TaskPulse.Api.Models;
-using Microsoft.EntityFrameworkCore;
 
 namespace TaskPulse.Api.Repositories;
 

@@ -1,6 +1,6 @@
+using Microsoft.AspNetCore.Mvc;
 using TaskPulse.Api.Models;
 using TaskPulse.Api.Services;
-using Microsoft.AspNetCore.Mvc;
 
 namespace TaskPulse.Api.Controllers;
 
