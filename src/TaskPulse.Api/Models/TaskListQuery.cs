@@ -27,4 +27,8 @@ public sealed record TaskListQuery
     public int? Page { get; init; }
 
     public int? PageSize { get; init; }
+
+    // NextCursor from the previous page: continue from there instead of skipping `page` pages
+    [StringLength(400)]
+    public string? Cursor { get; init; }
 }

@@ -30,8 +30,9 @@ public sealed class TaskService(
             _ => TaskDueFilter.Any,
         };
         var filter = new TaskFilter(query.Priority, assignee, NormalizeLabel(query.Label), due, clock.GetUtcNow());
-        var (items, total) = await repository.ListAsync(query.Status, query.Q, query.IncludeDeleted, page, pageSize, filter, cancellationToken);
-        return new PagedResponse<TaskItem>(items, page, pageSize, total);
+        var after = query.Cursor is null ? null : TaskCursor.Decode(query.Cursor) ?? throw new BadHttpRequestException("cursor is not one this API issued.");
+        var (items, total, next) = await repository.ListAsync(query.Status, query.Q, query.IncludeDeleted, page, pageSize, filter, after, cancellationToken);
+        return new PagedResponse<TaskItem>(items, page, pageSize, total, next?.Encode());
     }
 
     public Task<TaskItem?> GetAsync(Guid id, bool includeDeleted = false, CancellationToken cancellationToken = default)

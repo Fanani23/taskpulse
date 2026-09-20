@@ -15,8 +15,8 @@ public sealed class PostgresTaskRepository(TasksDbContext db) : ITaskRepository
         return entity?.ToItem();
     }
 
-    public async Task<(IReadOnlyList<TaskItem> Items, int Total)> ListAsync(
-        TaskItemStatus? status, string? search, bool includeDeleted, int page, int pageSize, TaskFilter? filter = null, CancellationToken cancellationToken = default)
+    public async Task<(IReadOnlyList<TaskItem> Items, int Total, TaskCursor? Next)> ListAsync(
+        TaskItemStatus? status, string? search, bool includeDeleted, int page, int pageSize, TaskFilter? filter = null, TaskCursor? after = null, CancellationToken cancellationToken = default)
     {
         var query = Live(includeDeleted);
         if (status is { } wanted)
@@ -58,7 +58,7 @@ public sealed class PostgresTaskRepository(TasksDbContext db) : ITaskRepository
         var tsQuery = FullText.ToPrefixQuery(search);
         if (search is not null && search.Trim().Length > 0 && tsQuery is null)
         {
-            return ([], 0);
+            return ([], 0, null);
         }
 
         if (tsQuery is not null)
@@ -69,19 +69,55 @@ public sealed class PostgresTaskRepository(TasksDbContext db) : ITaskRepository
         var total = await query.CountAsync(cancellationToken);
 
         // Search results by relevance; otherwise open tasks with a due date first (soonest first), then by creation.
-        var ordered = tsQuery is not null
-            ? query.OrderByDescending(t => t.SearchVector!.Rank(EF.Functions.ToTsQuery("english", tsQuery))).ThenBy(t => t.CreatedAtUtc)
-            : query.OrderBy(t => t.Status == TaskItemStatus.Done)
-                   .ThenBy(t => t.DueAtUtc == null)
-                   .ThenBy(t => t.DueAtUtc)
-                   .ThenBy(t => t.CreatedAtUtc);
-        var entities = await ordered
-            .ThenBy(t => t.Id)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync(cancellationToken);
+        // Both orders end with the id, so the sort key is unique and a cursor (the last row's key) resumes exactly
+        // after it: `WHERE (key) > (cursor)` instead of OFFSET.
+        List<(TaskEntity Entity, float? Rank)> rows;
+        if (tsQuery is not null)
+        {
+            var ranked = query.Select(t => new { Entity = t, Rank = t.SearchVector!.Rank(EF.Functions.ToTsQuery("english", tsQuery)) });
+            if (after is { Rank: { } afterRank })
+            {
+                ranked = ranked.Where(r => EF.Functions.GreaterThan(ValueTuple.Create(-r.Rank, r.Entity.CreatedAtUtc, r.Entity.Id), ValueTuple.Create(-afterRank, after.CreatedAt, after.Id)));
+            }
 
-        return (entities.Select(e => e.ToItem()).ToList(), total);
+            var page1 = await ranked
+                .OrderByDescending(r => r.Rank).ThenBy(r => r.Entity.CreatedAtUtc).ThenBy(r => r.Entity.Id)
+                .Skip(after is null ? (page - 1) * pageSize : 0)
+                .Take(pageSize + 1) // one extra row tells whether a next page exists
+                .ToListAsync(cancellationToken);
+            rows = page1.Select(r => (r.Entity, (float?)r.Rank)).ToList();
+        }
+        else
+        {
+            if (after is not null)
+            {
+                var afterDue = after.DueAt ?? DateTime.MaxValue;
+                query = query.Where(t => EF.Functions.GreaterThan(
+                    ValueTuple.Create(t.Status == TaskItemStatus.Done, t.DueAtUtc == null, t.DueAtUtc ?? DateTime.MaxValue, t.CreatedAtUtc, t.Id),
+                    ValueTuple.Create(after.Done, after.DueNull, afterDue, after.CreatedAt, after.Id)));
+            }
+
+            var page1 = await query
+                .OrderBy(t => t.Status == TaskItemStatus.Done)
+                .ThenBy(t => t.DueAtUtc == null)
+                .ThenBy(t => t.DueAtUtc)
+                .ThenBy(t => t.CreatedAtUtc)
+                .ThenBy(t => t.Id)
+                .Skip(after is null ? (page - 1) * pageSize : 0)
+                .Take(pageSize + 1) // one extra row tells whether a next page exists
+                .ToListAsync(cancellationToken);
+            rows = page1.Select(t => (t, (float?)null)).ToList();
+        }
+
+        TaskCursor? next = null;
+        if (rows.Count > pageSize)
+        {
+            rows.RemoveRange(pageSize, rows.Count - pageSize);
+            var (last, rank) = rows[^1];
+            next = new TaskCursor(last.Status == TaskItemStatus.Done, last.DueAtUtc == null, last.DueAtUtc, last.CreatedAtUtc, last.Id, rank);
+        }
+
+        return (rows.Select(r => r.Entity.ToItem()).ToList(), total, next);
     }
 
     public async Task AddAsync(TaskItem item, CancellationToken cancellationToken = default)

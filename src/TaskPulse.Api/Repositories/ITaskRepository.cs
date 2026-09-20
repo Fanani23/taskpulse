@@ -1,3 +1,4 @@
+using TaskPulse.Api.Infrastructure;
 using TaskPulse.Api.Models;
 
 namespace TaskPulse.Api.Repositories;
@@ -6,8 +7,8 @@ public interface ITaskRepository
 {
     Task<TaskItem?> GetAsync(Guid id, bool includeDeleted = false, CancellationToken cancellationToken = default);
 
-    Task<(IReadOnlyList<TaskItem> Items, int Total)> ListAsync(
-        TaskItemStatus? status, string? search, bool includeDeleted, int page, int pageSize, TaskFilter? filter = null, CancellationToken cancellationToken = default);
+    Task<(IReadOnlyList<TaskItem> Items, int Total, TaskCursor? Next)> ListAsync(
+        TaskItemStatus? status, string? search, bool includeDeleted, int page, int pageSize, TaskFilter? filter = null, TaskCursor? after = null, CancellationToken cancellationToken = default);
 
     Task AddAsync(TaskItem item, CancellationToken cancellationToken = default);
 

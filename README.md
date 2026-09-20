@@ -122,7 +122,8 @@ Base path `/api/tasks`. JSON in and out; enums as strings; errors as RFC 9457 `a
 
 | Method | Path | Success | Errors |
 |---|---|---|---|
-| `GET` | `/api/tasks?status=Todo&q=postgres&priority=High&assignee=me&label=docs&due=overdue&page=1&pageSize=20` | 200 `{items, page, pageSize, total}` — open tasks with a due date first | 400 (`q` > 100 chars) |
+| `GET` | `/api/tasks?status=Todo&q=postgres&priority=High&assignee=me&label=docs&due=overdue&page=1&pageSize=20` | 200 `{items, page, pageSize, total, nextCursor}` — open tasks with a due date first | 400 (`q` > 100 chars) |
+| `GET` | `/api/tasks?cursor=<nextCursor>&pageSize=` | 200 the same list continued by **keyset** after the last row of the previous page (`nextCursor` in every full page; `page` keeps counting from the value you send): stable while rows are inserted or moved, no OFFSET scan for deep pages; works with every filter and with `q` (rank, then created, then id) | 400 a cursor this API did not issue |
 | `GET` | `/api/tasks/stats?days=14` | 200 `{total, byStatus, completionRate, createdToday, doneThisWeek, donePreviousWeek, oldestOpen, recentlyUpdated[], daily[]}` | 400 (`days` ∉ 1–90) |
 | `GET` | `/api/tasks/{id}?includeDeleted=` | 200 + `ETag: W/"<version>"` | 404 |
 | `POST` 🔒 | `/api/tasks` `{title, description?, priority?, dueAt?, assigneeId?, assigneeName?, labels?}` | 201 + `Location` | 400 validation, 401 |
@@ -170,6 +171,13 @@ them, `POST …/restore` brings one back, and `?permanent=true` (Admin role) pur
 **Lost-update protection** — single GETs answer with a weak `ETag` built from PostgreSQL's `xmin`; send it back in
 `If-Match` on `PUT` and a stale value is refused with **412** instead of overwriting someone else's change (`xmin` also
 guards the database itself). Without `If-Match` the last write wins, as before.
+
+**Cursor paging** — every full page of `GET /api/tasks` carries `nextCursor`, the sort key of its last row
+(status-done flag, due date, created, id — or search rank, created, id; base64url JSON, opaque to clients). Sending it
+back as `?cursor=` turns the next page into `WHERE (key) > (cursor)` — Postgres row-value comparison through EF — so a
+task created or moved by someone else in between never repeats or disappears across pages, and page 200 costs the same
+as page 2. Page numbers and `total` stay, so the portal's pager keeps counting; its **Next** button uses the cursor,
+jumping to a number uses the offset.
 
 **Idempotency keys** — a create (`POST /api/tasks`, `/api/catalog/{kind}`, `/api/uploads`) sent with
 `Idempotency-Key: <client-chosen id>` is remembered for 24 hours per caller and route: a repeat gets the first
@@ -375,7 +383,7 @@ run it against `:8088` to watch the edge limiter instead.
 ## Tests
 
 ```
-TaskPulse.Api.Tests   43 passed   tasks: CRUD round-trip (re-read after update), data survives a process restart,
+TaskPulse.Api.Tests   44 passed   tasks: CRUD round-trip (re-read after update), data survives a process restart,
                                        concurrent updates, validation 400, bad enum 400, 404, page-size clamp,
                                        q search + LIKE escaping, stats shape and range check, CORS allow-list,
                                        health, correlation id, OpenAPI
@@ -392,6 +400,8 @@ TaskPulse.Api.Tests   43 passed   tasks: CRUD round-trip (re-read after update),
                                      catalog history: create + update rows with the label / sort / per-attribute diff,
                                        a no-op update stores no diff, anonymous 401
                                      priority Low (the enum's CLR default) is stored, not swallowed by a column default
+                                     cursor paging: full walk without gaps or repeats while a row is inserted at the
+                                       front, same order as the offset view, ranked search pages too, bad cursor 400
                                      idempotency: replay with Location + marker, 422 on another body, per caller and
                                        per route, key freed after a validation 400, >128 chars 400, uploads once,
                                        CORS preflight allows the header and exposes the marker

@@ -12,6 +12,8 @@ namespace TaskPulse.Api.Controllers;
 [Tags("Tasks")]
 public sealed class TasksController(ITaskService tasks) : ControllerBase
 {
+    // ?page=&pageSize= is the offset view; the answer's nextCursor continues the same list by keyset (?cursor=) -
+    // stable while rows are inserted or moved, and no OFFSET scan for deep pages.
     [HttpGet(Name = "ListTasks")]
     [EndpointSummary("List tasks (paged; optional status filter, q text search on title and description, includeDeleted).")]
     [ProducesResponseType<PagedResponse<TaskItem>>(StatusCodes.Status200OK)]

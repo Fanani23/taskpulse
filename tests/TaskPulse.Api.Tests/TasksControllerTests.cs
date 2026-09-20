@@ -140,6 +140,51 @@ public sealed class TasksControllerTests(ApiFactory factory) : IClassFixture<Api
     }
 
     [Fact]
+    public async Task Cursor_paging_walks_the_list_without_gaps_or_repeats_while_rows_are_inserted()
+    {
+        var tag = "cursor" + Guid.NewGuid().ToString("N")[..6];
+        for (var i = 0; i < 7; i++)
+        {
+            await _client.PostAsJsonAsync("/api/tasks", new { title = $"{tag} item {i}", priority = i % 2 == 0 ? "High" : "Low", dueAt = i < 3 ? DateTimeOffset.UtcNow.AddDays(i) : (DateTimeOffset?)null, labels = new[] { tag } });
+        }
+
+        // page 1 by offset; then keyset from its cursor - even though a new task lands at the front meanwhile
+        var first = (await _client.GetFromJsonAsync<PagedResponse<TaskItem>>($"/api/tasks?label={tag}&pageSize=3", Json))!;
+        Assert.Equal(3, first.Items.Count);
+        Assert.NotNull(first.NextCursor);
+        await _client.PostAsJsonAsync("/api/tasks", new { title = $"{tag} inserted", dueAt = DateTimeOffset.UtcNow.AddHours(1), labels = new[] { tag } });
+
+        var seen = first.Items.Select(t => t.Id).ToList();
+        var cursor = first.NextCursor;
+        var pageNo = 1;
+        while (cursor is not null)
+        {
+            var page = (await _client.GetFromJsonAsync<PagedResponse<TaskItem>>($"/api/tasks?label={tag}&pageSize=3&page={pageNo + 1}&cursor={Uri.EscapeDataString(cursor)}", Json))!;
+            Assert.Equal(++pageNo, page.Page);
+            Assert.Equal(8, page.Total);
+            seen.AddRange(page.Items.Select(t => t.Id));
+            cursor = page.NextCursor;
+            Assert.True(pageNo < 10, "cursor never ended");
+        }
+
+        Assert.Equal(7, seen.Count); // the 7 originals once each; the row inserted before the cursor is not repeated or skipped into
+        Assert.Equal(seen.Count, seen.Distinct().Count());
+        Assert.DoesNotContain(seen, id => id == Guid.Empty);
+        var offsetOrder = (await _client.GetFromJsonAsync<PagedResponse<TaskItem>>($"/api/tasks?label={tag}&pageSize=50", Json))!.Items.Select(t => t.Id).Where(id => seen.Contains(id));
+        Assert.Equal(offsetOrder, seen); // same order as the offset view
+
+        // search results (ranked) page by cursor too
+        var ranked = (await _client.GetFromJsonAsync<PagedResponse<TaskItem>>($"/api/tasks?q={tag}&pageSize=4", Json))!;
+        Assert.NotNull(ranked.NextCursor);
+        var rest = (await _client.GetFromJsonAsync<PagedResponse<TaskItem>>($"/api/tasks?q={tag}&pageSize=4&cursor={Uri.EscapeDataString(ranked.NextCursor!)}", Json))!;
+        Assert.Equal(8, ranked.Items.Count + rest.Items.Count);
+        Assert.Empty(ranked.Items.Select(t => t.Id).Intersect(rest.Items.Select(t => t.Id)));
+        Assert.Null(rest.NextCursor);
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.GetAsync("/api/tasks?cursor=not-a-cursor")).StatusCode);
+    }
+
+    [Fact]
     public async Task Health_endpoints_report_healthy()
     {
         var live = await _client.GetAsync("/health");
