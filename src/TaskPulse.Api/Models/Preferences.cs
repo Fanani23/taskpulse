@@ -10,7 +10,10 @@ public static class PreferenceLimits
     public static readonly string[] Themes = ["light", "dark", "system"];
 }
 
-public sealed record Preferences(string UserId, string Theme, string? Nickname, DateTimeOffset UpdatedAt);
+public sealed record Preferences(string UserId, string Theme, string? Nickname, DateTimeOffset? UpdatedAt, bool Saved = true)
+{
+    public static Preferences Defaults(string userId) => new(userId, "system", null, null, Saved: false);
+}
 
 public sealed record UpsertPreferencesRequest
 {

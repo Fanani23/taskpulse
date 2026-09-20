@@ -23,13 +23,13 @@ public sealed class PreferenceEntity
         UserId = item.UserId,
         Theme = item.Theme,
         Nickname = item.Nickname,
-        UpdatedAtUtc = item.UpdatedAt.UtcDateTime,
+        UpdatedAtUtc = (item.UpdatedAt ?? DateTimeOffset.UtcNow).UtcDateTime,
     };
 
     public void Apply(Preferences item)
     {
         Theme = item.Theme;
         Nickname = item.Nickname;
-        UpdatedAtUtc = item.UpdatedAt.UtcDateTime;
+        UpdatedAtUtc = (item.UpdatedAt ?? DateTimeOffset.UtcNow).UtcDateTime;
     }
 }

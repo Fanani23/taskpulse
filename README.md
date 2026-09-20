@@ -124,7 +124,7 @@ the same controller. `scripts/seed.sh` seeds the kinds the portal needs and skip
 
 ### Preferences (`/api/preferences/{userId}`)
 
-`GET` (404 until saved), `PUT {theme: light|dark|system, nickname?}` (upsert, 200), `DELETE` (204). The portal keys
+`GET` always 200 — the defaults with `saved: false` until the user has saved once, `PUT {theme: light|dark|system, nickname?}` (upsert, 200), `DELETE` (204). The portal keys
 this by the user id in its JWT, so theme and nickname survive a reload and a different browser.
 
 ### Uploads (`/api/uploads`)
@@ -243,7 +243,7 @@ TaskPulse.Api.Tests   26 passed   tasks: CRUD round-trip (re-read after update),
                                        health, correlation id, OpenAPI
                                      catalog: CRUD with derived code and jsonb attributes, 409 on duplicate,
                                        parent filter / search / ordering, delete cascades out of parents, bad input
-                                     preferences: upsert + read back, invalid theme, 404 after delete
+                                     preferences: defaults before save, upsert + read back, invalid theme, defaults again after delete
                                      uploads: round trip incl. downloaded bytes, 413 / 415 (signature mismatch) / 400
 TaskPulse.Realtime.Tests   5 passed   welcome/echo/pong, broadcast to two clients, raw text + bad JSON,
                                        plain GET on /ws is 400, /stats + /health

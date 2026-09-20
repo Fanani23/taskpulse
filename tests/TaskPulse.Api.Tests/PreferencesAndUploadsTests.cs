@@ -27,13 +27,17 @@ public sealed class PreferencesAndUploadsTests(ApiFactory factory) : IClassFixtu
     public async Task Preferences_are_absent_until_saved_then_upserted()
     {
         var userId = "user-" + Guid.NewGuid().ToString("N")[..6];
-        Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"/api/preferences/{userId}")).StatusCode);
+        var defaults = await _client.GetFromJsonAsync<Preferences>($"/api/preferences/{userId}", Json);
+        Assert.False(defaults!.Saved);
+        Assert.Equal("system", defaults.Theme);
+        Assert.Null(defaults.UpdatedAt);
 
         var save = await _client.PutAsJsonAsync($"/api/preferences/{userId}", new { theme = "dark", nickname = "  Pram  " });
         Assert.Equal(HttpStatusCode.OK, save.StatusCode);
         var saved = await save.Content.ReadFromJsonAsync<Preferences>(Json);
         Assert.Equal("dark", saved!.Theme);
         Assert.Equal("Pram", saved.Nickname);
+        Assert.True(saved.Saved);
 
         var again = await _client.PutAsJsonAsync($"/api/preferences/{userId}", new { theme = "light", nickname = "" });
         Assert.Equal(HttpStatusCode.OK, again.StatusCode);
@@ -46,7 +50,7 @@ public sealed class PreferencesAndUploadsTests(ApiFactory factory) : IClassFixtu
         Assert.Equal(HttpStatusCode.NotFound, (await _client.PutAsJsonAsync("/api/preferences/bad id", new { theme = "dark" })).StatusCode);
 
         Assert.Equal(HttpStatusCode.NoContent, (await _client.DeleteAsync($"/api/preferences/{userId}")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"/api/preferences/{userId}")).StatusCode);
+        Assert.False((await _client.GetFromJsonAsync<Preferences>($"/api/preferences/{userId}", Json))!.Saved);
     }
 
     [Fact]
