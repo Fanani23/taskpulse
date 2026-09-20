@@ -5,12 +5,29 @@ API="${1:-http://127.0.0.1:8088}"
 WS="${2:-$(echo "$API" | sed -E 's#^http#ws#')}"
 CID="smoke-$(date +%s)"
 fail=0
-
+# Writes need a bearer token signed with the express JWT secret. Pass TASKPULSE_TOKEN, or let the script sign one
+# with TASKPULSE_JWT_SECRET (read from /etc/taskpulse/api.env when sudo is available).
+b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+mint_token() {
+  local secret=$1 now header payload
+  now=$(date +%s)
+  header=$(printf '{"alg":"HS256","typ":"JWT"}' | b64url)
+  payload=$(printf '{"sub":"smoke","roles":["Admin"],"user_meta":{"email":"smoke@taskpulse.local"},"iat":%s,"exp":%s}' "$now" $((now + 600)) | b64url)
+  printf '%s.%s.%s' "$header" "$payload" "$(printf '%s.%s' "$header" "$payload" | openssl dgst -sha256 -hmac "$secret" -binary | b64url)"
+}
+TOKEN="${TASKPULSE_TOKEN:-}"
+if [[ -z "$TOKEN" ]]; then
+  SECRET="${TASKPULSE_JWT_SECRET:-}"
+  [[ -z "$SECRET" && -r /etc/taskpulse/api.env ]] && SECRET=$(sed -n 's/^Api__JwtSecret=//p' /etc/taskpulse/api.env)
+  [[ -z "$SECRET" ]] && SECRET=$(sudo -n sed -n 's/^Api__JwtSecret=//p' /etc/taskpulse/api.env 2>/dev/null || true)
+  [[ -n "$SECRET" ]] && TOKEN=$(mint_token "$SECRET")
+fi
+AUTH=(); [[ -n "$TOKEN" ]] && AUTH=(-H "Authorization: Bearer $TOKEN")
 pass() { printf '  \033[1;32mPASS\033[0m %s\n' "$*"; }
 fail() { printf '  \033[1;31mFAIL\033[0m %s\n' "$*"; fail=1; }
 check() {
   local desc=$1 want=$2; shift 2
-  local got; got=$(curl -s -o /tmp/smoke-body -w '%{http_code}' -H "X-Correlation-Id: $CID" "$@")
+  local got; got=$(curl -s -o /tmp/smoke-body -w '%{http_code}' -H "X-Correlation-Id: $CID" "${AUTH[@]}" "$@")
   [[ "$got" == "$want" ]] && pass "$desc -> $got" || { fail "$desc -> $got (expected $want): $(head -c 200 /tmp/smoke-body)"; }
 }
 

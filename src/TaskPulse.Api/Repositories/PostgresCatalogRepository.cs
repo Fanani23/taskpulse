@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using TaskPulse.Api.Data;
@@ -16,7 +17,7 @@ public sealed class PostgresCatalogRepository(TasksDbContext db) : ICatalogRepos
             .Select(k => new CatalogKindSummary(k.Kind, k.Count))
             .ToList();
 
-    public async Task<IReadOnlyList<CatalogItem>> ListAsync(string kind, string? parent, string? search, int limit, CancellationToken cancellationToken = default)
+    public async Task<(IReadOnlyList<CatalogItem> Items, int Total)> ListAsync(string kind, string? parent, string? search, int page, int pageSize, CancellationToken cancellationToken = default)
     {
         IQueryable<CatalogEntity> query = db.Catalog.AsNoTracking().Where(c => c.Kind == kind);
         if (!string.IsNullOrWhiteSpace(parent))
@@ -31,14 +32,16 @@ public sealed class PostgresCatalogRepository(TasksDbContext db) : ICatalogRepos
                                   || EF.Functions.ILike(c.Code, pattern, LikePatterns.EscapeCharacter));
         }
 
+        var total = await query.CountAsync(cancellationToken);
         var entities = await query
             .OrderBy(c => c.Sort)
             .ThenBy(c => c.Label)
             .ThenBy(c => c.Code)
-            .Take(limit)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .ToListAsync(cancellationToken);
 
-        return entities.Select(e => e.ToItem()).ToList();
+        return (entities.Select(e => e.ToItem()).ToList(), total);
     }
 
     public async Task<CatalogItem?> GetAsync(string kind, string code, CancellationToken cancellationToken = default)
@@ -100,4 +103,36 @@ public sealed class PostgresCatalogRepository(TasksDbContext db) : ICatalogRepos
             await transaction.CommitAsync(cancellationToken);
             return true;
         });
+
+    public async Task<CatalogSchema?> GetSchemaAsync(string kind, CancellationToken cancellationToken = default)
+    {
+        var entity = await db.CatalogSchemas.AsNoTracking().FirstOrDefaultAsync(s => s.Kind == kind, cancellationToken);
+        return entity is null ? null : new CatalogSchema(entity.Kind, entity.Schema.RootElement.Clone(), new DateTimeOffset(DateTime.SpecifyKind(entity.UpdatedAtUtc, DateTimeKind.Utc)), entity.UpdatedBy);
+    }
+
+    public async Task UpsertSchemaAsync(CatalogSchema schema, CancellationToken cancellationToken = default)
+    {
+        var entity = await db.CatalogSchemas.FindAsync([schema.Kind], cancellationToken);
+        if (entity is null)
+        {
+            db.CatalogSchemas.Add(new CatalogSchemaEntity
+            {
+                Kind = schema.Kind,
+                Schema = JsonDocument.Parse(schema.Schema.GetRawText()),
+                UpdatedAtUtc = (schema.UpdatedAt ?? DateTimeOffset.UtcNow).UtcDateTime,
+                UpdatedBy = schema.UpdatedBy,
+            });
+        }
+        else
+        {
+            entity.Schema = JsonDocument.Parse(schema.Schema.GetRawText());
+            entity.UpdatedAtUtc = (schema.UpdatedAt ?? DateTimeOffset.UtcNow).UtcDateTime;
+            entity.UpdatedBy = schema.UpdatedBy;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<bool> DeleteSchemaAsync(string kind, CancellationToken cancellationToken = default)
+        => await db.CatalogSchemas.Where(s => s.Kind == kind).ExecuteDeleteAsync(cancellationToken) > 0;
 }

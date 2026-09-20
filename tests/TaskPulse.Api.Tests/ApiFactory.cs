@@ -28,12 +28,24 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     public static string ConnectionStringFor(string databaseName)
         => new NpgsqlConnectionStringBuilder(AdminConnectionString) { Database = databaseName }.ConnectionString;
 
+    public const string JwtSecret = "taskpulse-tests-secret-do-not-use-in-production";
+
     public string UploadDirectory => Path.Combine(Path.GetTempPath(), "taskpulse-tests", DatabaseName);
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
         => builder
             .UseSetting("ConnectionStrings:Tasks", ConnectionStringFor(DatabaseName))
-            .UseSetting("Api:UploadDirectory", UploadDirectory);
+            .UseSetting("Api:UploadDirectory", UploadDirectory)
+            .UseSetting("Api:JwtSecret", JwtSecret)
+            .UseSetting("Api:WritesPerMinute", "1000");
+
+    // A client that carries an access token shaped like the one express-template issues (sub, roles, user_meta.email).
+    public HttpClient CreateClient(string sub, string email, params string[] roles)
+    {
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", TestTokens.Issue(sub, email, roles));
+        return client;
+    }
 
     protected override void Dispose(bool disposing)
     {

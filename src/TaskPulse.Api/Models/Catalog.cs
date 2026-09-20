@@ -11,6 +11,7 @@ public static partial class CatalogLimits
     public const int ParentsMax = 50;
     public const int AttributesMaxBytes = 4096;
     public const int ListMax = 500;
+    public const int SchemaMaxBytes = 16 * 1024;
     public const string CodePattern = "^[a-z0-9][a-z0-9-]{0,63}$";
 
     [GeneratedRegex(CodePattern)]
@@ -35,7 +36,10 @@ public sealed record CatalogItem(
     JsonElement? Attributes,
     int Sort,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    string? CreatedBy = null,
+    string? UpdatedBy = null,
+    uint Version = 0);
 
 public sealed record CatalogKindSummary(string Kind, int Count);
 
@@ -45,6 +49,31 @@ public sealed record CatalogListQuery
 
     [StringLength(TaskLimits.SearchMaxLength, ErrorMessage = "q must be at most {1} characters.")]
     public string? Q { get; init; }
+
+    [Range(1, int.MaxValue, ErrorMessage = "page must be at least 1.")]
+    public int? Page { get; init; }
+
+    [Range(1, CatalogLimits.ListMax, ErrorMessage = "pageSize must be between {1} and {2}.")]
+    public int? PageSize { get; init; }
+}
+
+public sealed record CatalogSchema(string Kind, JsonElement Schema, DateTimeOffset? UpdatedAt, string? UpdatedBy);
+
+public sealed record PutCatalogSchemaRequest : IValidatableObject
+{
+    public JsonElement? Schema { get; init; }
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (Schema is not { ValueKind: JsonValueKind.Object })
+        {
+            yield return new ValidationResult("Schema must be a JSON Schema object.", [nameof(Schema)]);
+        }
+        else if (Schema.Value.GetRawText().Length > CatalogLimits.SchemaMaxBytes)
+        {
+            yield return new ValidationResult($"Schema must be at most {CatalogLimits.SchemaMaxBytes} bytes.", [nameof(Schema)]);
+        }
+    }
 }
 
 public abstract record CatalogItemRequest : IValidatableObject

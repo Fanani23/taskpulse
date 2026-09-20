@@ -20,6 +20,7 @@ command -v pg_lsclusters >/dev/null || { echo "PostgreSQL not found (apt install
 if [[ "${1:-}" == "--uninstall" ]]; then
   log "Stopping and removing units"
   for u in "${UNITS[@]}"; do systemctl disable --now "$u" 2>/dev/null || true; rm -f "/etc/systemd/system/$u.service"; done
+  systemctl disable --now taskpulse-backup.timer 2>/dev/null || true; rm -f /etc/systemd/system/taskpulse-backup.{service,timer}
   systemctl daemon-reload
   rm -f "/etc/nginx/sites-enabled/$NGINX_SITE" "/etc/nginx/sites-available/$NGINX_SITE"
   command -v nginx >/dev/null && nginx -t 2>/dev/null && systemctl reload nginx || true
@@ -53,9 +54,23 @@ for spec in "$DB_NAME:$SVC_USER" "${DB_NAME}_dev:$DEV_ROLE"; do
 done
 cd "$ROOT"
 
+# The JWT secret is the one express-template signs access tokens with (apps/sample-api/.env JWT_SECRET). Writes on
+# the API are refused without a token signed by it. A previously written secret is kept when the caller passes none.
+JWT_SECRET="${TASKPULSE_JWT_SECRET:-}"
+if [[ -z "$JWT_SECRET" && -f "$ENV_DIR/api.env" ]]; then
+  JWT_SECRET="$(sed -n 's/^Api__JwtSecret=//p' "$ENV_DIR/api.env" | head -1)"
+fi
+if [[ -z "$JWT_SECRET" ]]; then
+  JWT_SECRET="$(head -c 48 /dev/urandom | base64 | tr -d '/+=\n' | head -c 48)"
+  echo "!! TASKPULSE_JWT_SECRET not given - generated a random one; the Vue + Express portal will NOT be able to write"
+  echo "!! until you re-run with TASKPULSE_JWT_SECRET=<express JWT_SECRET> (README, Authentication)."
+fi
+
 install -d -m 0755 "$ENV_DIR"
 {
   printf 'ConnectionStrings__Tasks=Host=/var/run/postgresql;Port=%s;Database=%s;Username=%s\n' "$PG_PORT" "$DB_NAME" "$SVC_USER"
+  printf 'Api__JwtSecret=%s\n' "$JWT_SECRET"
+  printf 'Api__RealtimeInternalUrl=http://127.0.0.1:5090/internal/broadcast\n'
   i=0
   for origin in ${TASKPULSE_ALLOWED_ORIGINS:-}; do
     printf 'Api__AllowedOrigins__%s=%s\n' "$i" "$origin"; i=$((i + 1))
@@ -83,13 +98,19 @@ for d in api realtime; do
   cp -r "$STAGE/$d" "$PREFIX/$d"
 done
 cp "$ROOT/README.md" "$PREFIX/README.md" 2>/dev/null || true
+install -d -m 0755 "$PREFIX/scripts"
+install -m 0755 "$ROOT/scripts/backup.sh" "$PREFIX/scripts/backup.sh"
 chown -R root:"$SVC_USER" "$PREFIX"
 chmod -R u=rwX,g=rX,o= "$PREFIX"
+chmod 0755 "$PREFIX/scripts" "$PREFIX/scripts/backup.sh"
 
 log "Installing systemd units"
 for u in "${UNITS[@]}"; do install -m 0644 "$ROOT/deploy/systemd/$u.service" "/etc/systemd/system/$u.service"; done
+install -m 0644 "$ROOT/deploy/systemd/taskpulse-backup.service" /etc/systemd/system/taskpulse-backup.service
+install -m 0644 "$ROOT/deploy/systemd/taskpulse-backup.timer" /etc/systemd/system/taskpulse-backup.timer
 systemctl daemon-reload
 systemctl enable "${UNITS[@]}" >/dev/null
+systemctl enable --now taskpulse-backup.timer >/dev/null
 for u in "${UNITS[@]}"; do
   systemctl restart "$u" || { echo "!! $u failed to start:"; journalctl -u "$u" -n 15 --no-pager -o cat; exit 1; }
 done

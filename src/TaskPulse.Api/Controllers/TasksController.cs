@@ -1,4 +1,7 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using TaskPulse.Api.Infrastructure;
 using TaskPulse.Api.Models;
 using TaskPulse.Api.Services;
 
@@ -10,7 +13,7 @@ namespace TaskPulse.Api.Controllers;
 public sealed class TasksController(ITaskService tasks) : ControllerBase
 {
     [HttpGet(Name = "ListTasks")]
-    [EndpointSummary("List tasks (paged; optional status filter and q text search on title and description).")]
+    [EndpointSummary("List tasks (paged; optional status filter, q text search on title and description, includeDeleted).")]
     [ProducesResponseType<PagedResponse<TaskItem>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResponse<TaskItem>>> List([FromQuery] TaskListQuery query, CancellationToken cancellationToken)
         => Ok(await tasks.ListAsync(query, cancellationToken));
@@ -23,16 +26,28 @@ public sealed class TasksController(ITaskService tasks) : ControllerBase
         => Ok(await tasks.GetStatsAsync(query, cancellationToken));
 
     [HttpGet("{id:guid}", Name = "GetTask")]
-    [EndpointSummary("Get a single task.")]
+    [EndpointSummary("Get a single task; answers with an ETag built from its row version.")]
     [ProducesResponseType<TaskItem>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<TaskItem>> Get(Guid id, CancellationToken cancellationToken)
-        => await tasks.GetAsync(id, cancellationToken) is { } item ? Ok(item) : NotFound();
+    public async Task<ActionResult<TaskItem>> Get(Guid id, [FromQuery] bool includeDeleted, CancellationToken cancellationToken)
+    {
+        var item = await tasks.GetAsync(id, includeDeleted, cancellationToken);
+        if (item is null)
+        {
+            return NotFound();
+        }
+
+        ETags.Set(Response, item.Version);
+        return Ok(item);
+    }
 
     [HttpPost(Name = "CreateTask")]
-    [EndpointSummary("Create a task (status starts as Todo).")]
+    [Authorize]
+    [EnableRateLimiting(RateLimits.Writes)]
+    [EndpointSummary("Create a task (status starts as Todo). Requires a bearer token from the Vue + Express sign-in.")]
     [ProducesResponseType<TaskItem>(StatusCodes.Status201Created)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<TaskItem>> Create(CreateTaskRequest request, CancellationToken cancellationToken)
     {
         var item = await tasks.CreateAsync(request, cancellationToken);
@@ -40,17 +55,60 @@ public sealed class TasksController(ITaskService tasks) : ControllerBase
     }
 
     [HttpPut("{id:guid}", Name = "UpdateTask")]
-    [EndpointSummary("Replace title, description and status of a task.")]
+    [Authorize]
+    [EnableRateLimiting(RateLimits.Writes)]
+    [EndpointSummary("Replace title, description and status. Send If-Match with the ETag you read to refuse lost updates (412).")]
     [ProducesResponseType<TaskItem>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status412PreconditionFailed)]
     public async Task<ActionResult<TaskItem>> Update(Guid id, UpdateTaskRequest request, CancellationToken cancellationToken)
-        => await tasks.UpdateAsync(id, request, cancellationToken) is { } item ? Ok(item) : NotFound();
+    {
+        var result = await tasks.UpdateAsync(id, request, ETags.Expected(Request), cancellationToken);
+        return result.Outcome switch
+        {
+            WriteOutcome.Ok => Tagged(result.Item!),
+            WriteOutcome.VersionMismatch => ETags.PreconditionFailed(this),
+            _ => NotFound(),
+        };
+    }
 
     [HttpDelete("{id:guid}", Name = "DeleteTask")]
-    [EndpointSummary("Delete a task.")]
+    [Authorize]
+    [EnableRateLimiting(RateLimits.Writes)]
+    [EndpointSummary("Soft-delete a task (restorable). ?permanent=true purges it and needs the Admin role.")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
-        => await tasks.DeleteAsync(id, cancellationToken) ? NoContent() : NotFound();
+    public async Task<IActionResult> Delete(Guid id, [FromQuery] bool permanent, CancellationToken cancellationToken)
+    {
+        var result = await tasks.DeleteAsync(id, permanent, cancellationToken);
+        return result.Outcome switch
+        {
+            WriteOutcome.Ok => NoContent(),
+            WriteOutcome.Forbidden => Problem(statusCode: StatusCodes.Status403Forbidden, title: "Only an Admin can purge a task."),
+            _ => NotFound(),
+        };
+    }
+
+    [HttpPost("{id:guid}/restore", Name = "RestoreTask")]
+    [Authorize]
+    [EnableRateLimiting(RateLimits.Writes)]
+    [EndpointSummary("Bring a soft-deleted task back.")]
+    [ProducesResponseType<TaskItem>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<TaskItem>> Restore(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await tasks.RestoreAsync(id, cancellationToken);
+        return result.Outcome == WriteOutcome.Ok ? Tagged(result.Item!) : NotFound();
+    }
+
+    private ActionResult<TaskItem> Tagged(TaskItem item)
+    {
+        ETags.Set(Response, item.Version);
+        return Ok(item);
+    }
 }

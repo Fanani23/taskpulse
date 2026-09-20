@@ -9,6 +9,8 @@ public sealed record TaskListQuery
     [StringLength(TaskLimits.SearchMaxLength, ErrorMessage = "q must be at most {1} characters.")]
     public string? Q { get; init; }
 
+    public bool IncludeDeleted { get; init; }
+
     public int? Page { get; init; }
 
     public int? PageSize { get; init; }

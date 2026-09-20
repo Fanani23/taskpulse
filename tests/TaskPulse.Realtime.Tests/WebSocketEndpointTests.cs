@@ -93,6 +93,30 @@ public sealed class WebSocketEndpointTests(WebApplicationFactory<Program> factor
         Assert.True(stats.TryGetProperty("connections", out _));
     }
 
+    [Fact]
+    public async Task Internal_broadcast_fans_out_change_events_and_is_loopback_only()
+    {
+        using var socket = await ConnectAsync();
+        await ReceiveAsync(socket);
+
+        var client = factory.CreateClient();
+        var accepted = await client.PostAsJsonAsync("/internal/broadcast", new { resource = "task", action = "create", id = "abc", kind = (string?)null, actor = "demo@techtest.dev" });
+        Assert.Equal(HttpStatusCode.Accepted, accepted.StatusCode);
+
+        var changed = await ReceiveAsync(socket);
+        Assert.Equal("changed", changed.GetProperty("type").GetString());
+        Assert.Equal("task", changed.GetProperty("resource").GetString());
+        Assert.Equal("create", changed.GetProperty("action").GetString());
+        Assert.Equal("abc", changed.GetProperty("id").GetString());
+        Assert.Equal("demo@techtest.dev", changed.GetProperty("actor").GetString());
+
+        using var proxied = new HttpRequestMessage(HttpMethod.Post, "/internal/broadcast") { Content = JsonContent.Create(new { resource = "task", action = "create", id = "x" }) };
+        proxied.Headers.Add("X-Forwarded-For", "203.0.113.9");
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(proxied)).StatusCode);
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/internal/broadcast", new { resource = "", action = "", id = "" })).StatusCode);
+    }
+
     private async Task<WebSocket> ConnectAsync()
     {
         var client = factory.Server.CreateWebSocketClient();

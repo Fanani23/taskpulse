@@ -7,21 +7,25 @@ namespace TaskPulse.Api.Services;
 
 public sealed class TaskService(
     ITaskRepository repository,
+    IAuditService audit,
+    ICurrentUser user,
     IOptions<ApiOptions> options,
     TimeProvider clock,
     ILogger<TaskService> logger) : ITaskService
 {
+    private const string Resource = "task";
+
     public async Task<PagedResponse<TaskItem>> ListAsync(TaskListQuery query, CancellationToken cancellationToken = default)
     {
         var page = Math.Max(query.Page ?? 1, 1);
         var pageSize = Math.Clamp(query.PageSize ?? options.Value.DefaultPageSize, 1, options.Value.MaxPageSize);
 
-        var (items, total) = await repository.ListAsync(query.Status, query.Q, page, pageSize, cancellationToken);
+        var (items, total) = await repository.ListAsync(query.Status, query.Q, query.IncludeDeleted, page, pageSize, cancellationToken);
         return new PagedResponse<TaskItem>(items, page, pageSize, total);
     }
 
-    public Task<TaskItem?> GetAsync(Guid id, CancellationToken cancellationToken = default)
-        => repository.GetAsync(id, cancellationToken);
+    public Task<TaskItem?> GetAsync(Guid id, bool includeDeleted = false, CancellationToken cancellationToken = default)
+        => repository.GetAsync(id, includeDeleted, cancellationToken);
 
     public Task<TaskStats> GetStatsAsync(TaskStatsQuery query, CancellationToken cancellationToken = default)
         => repository.GetStatsAsync(clock.GetUtcNow(), query.Days ?? TaskLimits.StatsDefaultDays, cancellationToken);
@@ -35,19 +39,27 @@ public sealed class TaskService(
             NormalizeDescription(request.Description),
             TaskItemStatus.Todo,
             now,
-            now);
+            now,
+            CreatedBy: user.Actor,
+            UpdatedBy: user.Actor);
 
         await repository.AddAsync(item, cancellationToken);
-        logger.LogInformation("Task {TaskId} created", item.Id);
-        return item;
+        logger.LogInformation("Task {TaskId} created by {Actor}", item.Id, user.Actor);
+        await audit.RecordAsync("create", Resource, item.Id.ToString(), item.Title, cancellationToken: cancellationToken);
+        return await repository.GetAsync(item.Id, false, cancellationToken) ?? item;
     }
 
-    public async Task<TaskItem?> UpdateAsync(Guid id, UpdateTaskRequest request, CancellationToken cancellationToken = default)
+    public async Task<WriteResult<TaskItem>> UpdateAsync(Guid id, UpdateTaskRequest request, uint? expectedVersion, CancellationToken cancellationToken = default)
     {
-        var existing = await repository.GetAsync(id, cancellationToken);
+        var existing = await repository.GetAsync(id, includeDeleted: false, cancellationToken);
         if (existing is null)
         {
-            return null;
+            return WriteResult<TaskItem>.NotFound;
+        }
+
+        if (expectedVersion is { } expected && expected != existing.Version)
+        {
+            return WriteResult<TaskItem>.VersionMismatch;
         }
 
         var updated = existing with
@@ -56,20 +68,77 @@ public sealed class TaskService(
             Description = NormalizeDescription(request.Description),
             Status = request.Status!.Value,
             UpdatedAt = Now(),
+            UpdatedBy = user.Actor,
         };
 
-        return await repository.UpdateAsync(updated, cancellationToken) ? updated : null;
-    }
-
-    public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
-    {
-        if (!await repository.DeleteAsync(id, cancellationToken))
+        if (!await repository.UpdateAsync(updated, cancellationToken))
         {
-            return false;
+            return WriteResult<TaskItem>.NotFound;
         }
 
-        logger.LogInformation("Task {TaskId} deleted", id);
-        return true;
+        var action = updated.Status != existing.Status ? "move" : "update";
+        await audit.RecordAsync(action, Resource, id.ToString(), updated.Status != existing.Status ? $"{updated.Title} → {updated.Status}" : updated.Title, cancellationToken: cancellationToken);
+        return WriteResult<TaskItem>.Ok(await repository.GetAsync(id, false, cancellationToken) ?? updated);
+    }
+
+    public async Task<WriteResult<TaskItem>> DeleteAsync(Guid id, bool permanent, CancellationToken cancellationToken = default)
+    {
+        if (permanent)
+        {
+            if (!user.IsAdmin)
+            {
+                return WriteResult<TaskItem>.Forbidden;
+            }
+
+            var existing = await repository.GetAsync(id, includeDeleted: true, cancellationToken);
+            if (existing is null || !await repository.PurgeAsync(id, cancellationToken))
+            {
+                return WriteResult<TaskItem>.NotFound;
+            }
+
+            logger.LogInformation("Task {TaskId} purged by {Actor}", id, user.Actor);
+            await audit.RecordAsync("purge", Resource, id.ToString(), existing.Title, cancellationToken: cancellationToken);
+            return WriteResult<TaskItem>.Ok(existing);
+        }
+
+        var live = await repository.GetAsync(id, includeDeleted: false, cancellationToken);
+        if (live is null)
+        {
+            return WriteResult<TaskItem>.NotFound;
+        }
+
+        var deleted = live with { DeletedAt = Now(), UpdatedAt = Now(), UpdatedBy = user.Actor };
+        if (!await repository.UpdateAsync(deleted, cancellationToken))
+        {
+            return WriteResult<TaskItem>.NotFound;
+        }
+
+        logger.LogInformation("Task {TaskId} deleted by {Actor}", id, user.Actor);
+        await audit.RecordAsync("delete", Resource, id.ToString(), live.Title, cancellationToken: cancellationToken);
+        return WriteResult<TaskItem>.Ok(deleted);
+    }
+
+    public async Task<WriteResult<TaskItem>> RestoreAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var existing = await repository.GetAsync(id, includeDeleted: true, cancellationToken);
+        if (existing is null)
+        {
+            return WriteResult<TaskItem>.NotFound;
+        }
+
+        if (existing.DeletedAt is null)
+        {
+            return WriteResult<TaskItem>.Ok(existing);
+        }
+
+        var restored = existing with { DeletedAt = null, UpdatedAt = Now(), UpdatedBy = user.Actor };
+        if (!await repository.UpdateAsync(restored, cancellationToken))
+        {
+            return WriteResult<TaskItem>.NotFound;
+        }
+
+        await audit.RecordAsync("restore", Resource, id.ToString(), restored.Title, cancellationToken: cancellationToken);
+        return WriteResult<TaskItem>.Ok(await repository.GetAsync(id, false, cancellationToken) ?? restored);
     }
 
     private DateTimeOffset Now() => Timestamps.ToMicroseconds(clock.GetUtcNow());

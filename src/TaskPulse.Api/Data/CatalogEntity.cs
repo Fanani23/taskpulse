@@ -23,6 +23,10 @@ public sealed class CatalogEntity
 
     public DateTime UpdatedAtUtc { get; set; }
 
+    public string? CreatedBy { get; set; }
+
+    public string? UpdatedBy { get; set; }
+
     public uint Version { get; set; }
 
     public CatalogItem ToItem() => new(
@@ -34,7 +38,10 @@ public sealed class CatalogEntity
         Attributes?.RootElement.Clone(),
         Sort,
         new DateTimeOffset(DateTime.SpecifyKind(CreatedAtUtc, DateTimeKind.Utc)),
-        new DateTimeOffset(DateTime.SpecifyKind(UpdatedAtUtc, DateTimeKind.Utc)));
+        new DateTimeOffset(DateTime.SpecifyKind(UpdatedAtUtc, DateTimeKind.Utc)),
+        CreatedBy,
+        UpdatedBy,
+        Version);
 
     public static CatalogEntity From(CatalogItem item) => new()
     {
@@ -47,6 +54,8 @@ public sealed class CatalogEntity
         Sort = item.Sort,
         CreatedAtUtc = item.CreatedAt.UtcDateTime,
         UpdatedAtUtc = item.UpdatedAt.UtcDateTime,
+        CreatedBy = item.CreatedBy,
+        UpdatedBy = item.UpdatedBy,
     };
 
     public void Apply(CatalogItem item)
@@ -56,6 +65,7 @@ public sealed class CatalogEntity
         Attributes = ToDocument(item.Attributes);
         Sort = item.Sort;
         UpdatedAtUtc = item.UpdatedAt.UtcDateTime;
+        UpdatedBy = item.UpdatedBy;
     }
 
     private static JsonDocument? ToDocument(JsonElement? element)

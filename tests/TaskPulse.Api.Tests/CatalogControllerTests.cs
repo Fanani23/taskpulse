@@ -10,7 +10,7 @@ public sealed class CatalogControllerTests(ApiFactory factory) : IClassFixture<A
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    private readonly HttpClient _client = factory.CreateClient();
+    private readonly HttpClient _client = factory.CreateClient("1", "test@techtest.dev", "TestGroup");
 
     [Fact]
     public async Task Crud_round_trip_with_derived_code_and_attributes()

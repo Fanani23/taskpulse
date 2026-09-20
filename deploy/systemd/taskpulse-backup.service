@@ -1,0 +1,10 @@
+[Unit]
+Description=TaskPulse nightly backup (pg_dump + uploads)
+Documentation=file:///opt/taskpulse/README.md
+After=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/taskpulse/scripts/backup.sh
+Nice=10
+IOSchedulingClass=idle

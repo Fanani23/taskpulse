@@ -1,4 +1,7 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using TaskPulse.Api.Infrastructure;
 using TaskPulse.Api.Models;
 using TaskPulse.Api.Services;
 
@@ -7,7 +10,7 @@ namespace TaskPulse.Api.Controllers;
 [ApiController]
 [Route("api/preferences")]
 [Tags("Preferences")]
-public sealed class PreferencesController(IPreferencesService preferences) : ControllerBase
+public sealed class PreferencesController(IPreferencesService preferences, ICurrentUser user) : ControllerBase
 {
     private const string UserRoute = "{userId:regex(^[[A-Za-z0-9]][[A-Za-z0-9._@+-]]{{0,63}}$)}";
 
@@ -18,16 +21,29 @@ public sealed class PreferencesController(IPreferencesService preferences) : Con
         => Ok(await preferences.GetAsync(userId, cancellationToken) ?? Preferences.Defaults(userId));
 
     [HttpPut(UserRoute, Name = "SavePreferences")]
-    [EndpointSummary("Create or replace the preferences of one user.")]
+    [Authorize]
+    [EnableRateLimiting(RateLimits.Writes)]
+    [EndpointSummary("Create or replace your own preferences (the userId must be user-<sub> of the bearer token).")]
     [ProducesResponseType<Preferences>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<Preferences>> Save(string userId, UpsertPreferencesRequest request, CancellationToken cancellationToken)
-        => Ok(await preferences.UpsertAsync(userId, request, cancellationToken));
+        => Owns(userId) ? Ok(await preferences.UpsertAsync(userId, request, cancellationToken)) : NotYours();
 
     [HttpDelete(UserRoute, Name = "DeletePreferences")]
-    [EndpointSummary("Forget the preferences of one user.")]
+    [Authorize]
+    [EnableRateLimiting(RateLimits.Writes)]
+    [EndpointSummary("Forget your own preferences.")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(string userId, CancellationToken cancellationToken)
-        => await preferences.DeleteAsync(userId, cancellationToken) ? NoContent() : NotFound();
+        => !Owns(userId) ? NotYours() : await preferences.DeleteAsync(userId, cancellationToken) ? NoContent() : NotFound();
+
+    private bool Owns(string userId)
+        => user.IsAdmin || string.Equals(userId, user.PreferencesKey, StringComparison.OrdinalIgnoreCase) || string.Equals(userId, user.Sub, StringComparison.OrdinalIgnoreCase);
+
+    private ObjectResult NotYours()
+        => Problem(statusCode: StatusCodes.Status403Forbidden, title: "You can only change your own preferences.", detail: $"Your key is {user.PreferencesKey}.");
 }

@@ -25,6 +25,9 @@ services:
       ConnectionStrings__Tasks: "Host=postgres;Port=5432;Database=taskpulse;Username=taskpulse;Password=${POSTGRES_PASSWORD:-taskpulse-local-only}"
       Api__MaxPageSize: "200"
       Api__UploadDirectory: "/data/uploads"
+      Api__JwtSecret: "${TASKPULSE_JWT_SECRET:-compose-only-secret-change-me-32-chars}"
+      Api__RealtimeInternalUrl: "http://realtime:8080/internal/broadcast"
+      Api__RealtimeInternalToken: "${TASKPULSE_INTERNAL_TOKEN:-compose-internal-token}"
     volumes:
       - uploads:/data
     ports:
@@ -37,6 +40,7 @@ services:
       dockerfile: deploy/docker/realtime.Dockerfile
     environment:
       WebSocket__KeepAliveIntervalSeconds: "20"
+      WebSocket__InternalToken: "${TASKPULSE_INTERNAL_TOKEN:-compose-internal-token}"
     ports:
       - "5090:8080"
     restart: unless-stopped

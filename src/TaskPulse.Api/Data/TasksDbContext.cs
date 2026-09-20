@@ -9,9 +9,13 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
 
     public DbSet<CatalogEntity> Catalog => Set<CatalogEntity>();
 
+    public DbSet<CatalogSchemaEntity> CatalogSchemas => Set<CatalogSchemaEntity>();
+
     public DbSet<PreferenceEntity> Preferences => Set<PreferenceEntity>();
 
     public DbSet<UploadEntity> Uploads => Set<UploadEntity>();
+
+    public DbSet<AuditEntity> Audit => Set<AuditEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -26,11 +30,15 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
 
         tasks.Property(t => t.CreatedAtUtc).HasColumnType("timestamp with time zone");
         tasks.Property(t => t.UpdatedAtUtc).HasColumnType("timestamp with time zone");
+        tasks.Property(t => t.DeletedAtUtc).HasColumnType("timestamp with time zone");
+        tasks.Property(t => t.CreatedBy).HasMaxLength(AuditLimits.ActorMaxLength);
+        tasks.Property(t => t.UpdatedBy).HasMaxLength(AuditLimits.ActorMaxLength);
 
         tasks.Property(t => t.Version).IsRowVersion();
 
         tasks.HasIndex(t => t.Status);
         tasks.HasIndex(t => t.CreatedAtUtc);
+        tasks.HasIndex(t => t.DeletedAtUtc);
 
         var catalog = modelBuilder.Entity<CatalogEntity>();
         catalog.ToTable("catalog");
@@ -41,6 +49,8 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
         catalog.Property(c => c.Label).HasMaxLength(CatalogLimits.LabelMaxLength).IsRequired();
         catalog.Property(c => c.Parents).HasColumnType("text[]").IsRequired();
         catalog.Property(c => c.Attributes).HasColumnType("jsonb");
+        catalog.Property(c => c.CreatedBy).HasMaxLength(AuditLimits.ActorMaxLength);
+        catalog.Property(c => c.UpdatedBy).HasMaxLength(AuditLimits.ActorMaxLength);
 
         catalog.Property(c => c.CreatedAtUtc).HasColumnType("timestamp with time zone");
         catalog.Property(c => c.UpdatedAtUtc).HasColumnType("timestamp with time zone");
@@ -49,6 +59,14 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
 
         catalog.HasIndex(c => new { c.Kind, c.Code }).IsUnique();
         catalog.HasIndex(c => c.Parents).HasMethod("gin");
+
+        var schemas = modelBuilder.Entity<CatalogSchemaEntity>();
+        schemas.ToTable("catalog_schemas");
+        schemas.HasKey(s => s.Kind);
+        schemas.Property(s => s.Kind).HasMaxLength(CatalogLimits.CodeMaxLength);
+        schemas.Property(s => s.Schema).HasColumnType("jsonb").IsRequired();
+        schemas.Property(s => s.UpdatedAtUtc).HasColumnType("timestamp with time zone");
+        schemas.Property(s => s.UpdatedBy).HasMaxLength(AuditLimits.ActorMaxLength);
 
         var preferences = modelBuilder.Entity<PreferenceEntity>();
         preferences.ToTable("preferences");
@@ -65,8 +83,23 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
         uploads.Property(u => u.ContentType).HasMaxLength(100).IsRequired();
         uploads.Property(u => u.Source).HasMaxLength(UploadLimits.SourceMaxLength);
         uploads.Property(u => u.Note).HasMaxLength(UploadLimits.NoteMaxLength);
+        uploads.Property(u => u.OwnerId).HasMaxLength(AuditLimits.ActorMaxLength);
         uploads.Property(u => u.CreatedAtUtc).HasColumnType("timestamp with time zone");
         uploads.HasIndex(u => u.CreatedAtUtc);
         uploads.HasIndex(u => u.Source);
+
+        var audit = modelBuilder.Entity<AuditEntity>();
+        audit.ToTable("audit");
+        audit.HasKey(a => a.Id);
+        audit.Property(a => a.Id).UseIdentityAlwaysColumn();
+        audit.Property(a => a.AtUtc).HasColumnType("timestamp with time zone");
+        audit.Property(a => a.Actor).HasMaxLength(AuditLimits.ActorMaxLength);
+        audit.Property(a => a.Action).HasMaxLength(AuditLimits.ActionMaxLength).IsRequired();
+        audit.Property(a => a.Resource).HasMaxLength(AuditLimits.ResourceMaxLength).IsRequired();
+        audit.Property(a => a.Kind).HasMaxLength(AuditLimits.KindMaxLength);
+        audit.Property(a => a.TargetId).HasMaxLength(AuditLimits.TargetMaxLength).IsRequired();
+        audit.Property(a => a.Summary).HasMaxLength(AuditLimits.SummaryMaxLength).IsRequired();
+        audit.HasIndex(a => a.AtUtc);
+        audit.HasIndex(a => a.Resource);
     }
 }

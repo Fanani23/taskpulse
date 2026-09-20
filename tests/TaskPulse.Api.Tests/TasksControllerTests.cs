@@ -16,7 +16,7 @@ public sealed class TasksControllerTests(ApiFactory factory) : IClassFixture<Api
         Converters = { new JsonStringEnumConverter() },
     };
 
-    private readonly HttpClient _client = factory.CreateClient();
+    private readonly HttpClient _client = factory.CreateClient("1", "test@techtest.dev", "TestGroup");
 
     [Fact]
     public async Task Crud_round_trip()
@@ -55,6 +55,13 @@ public sealed class TasksControllerTests(ApiFactory factory) : IClassFixture<Api
 
         var gone = await _client.GetAsync($"/api/tasks/{created.Id}");
         Assert.Equal(HttpStatusCode.NotFound, gone.StatusCode);
+
+        var stillThere = await _client.GetFromJsonAsync<TaskItem>($"/api/tasks/{created.Id}?includeDeleted=true", Json);
+        Assert.NotNull(stillThere!.DeletedAt);
+        var restore = await _client.PostAsync($"/api/tasks/{created.Id}/restore", null);
+        Assert.Equal(HttpStatusCode.OK, restore.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/tasks/{created.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.DeleteAsync($"/api/tasks/{created.Id}")).StatusCode);
     }
 
     [Fact]
@@ -66,7 +73,7 @@ public sealed class TasksControllerTests(ApiFactory factory) : IClassFixture<Api
             Guid id;
             using (var firstRun = ApiFactory.ForDatabase(database))
             {
-                var response = await firstRun.CreateClient().PostAsJsonAsync("/api/tasks", new { title = "Persist me" });
+                var response = await firstRun.CreateClient("1", "test@techtest.dev", "TestGroup").PostAsJsonAsync("/api/tasks", new { title = "Persist me" });
                 Assert.Equal(HttpStatusCode.Created, response.StatusCode);
                 id = (await response.Content.ReadFromJsonAsync<TaskItem>(Json))!.Id;
             }

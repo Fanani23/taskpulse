@@ -13,7 +13,12 @@ public sealed record ServerMessage(
     string? Data = null,
     string? Event = null,
     int? Connections = null,
-    string? Error = null)
+    string? Error = null,
+    string? Resource = null,
+    string? Action = null,
+    string? Id = null,
+    string? Kind = null,
+    string? Actor = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -42,7 +47,13 @@ public sealed record ServerMessage(
 
     public static ServerMessage Fault(string error)
         => new("error", DateTimeOffset.UtcNow, Error: error);
+
+    public static ServerMessage Changed(ChangeNotification change)
+        => new("changed", DateTimeOffset.UtcNow, Resource: change.Resource, Action: change.Action, Id: change.Id, Kind: change.Kind, Actor: change.Actor);
 }
+
+// Posted by TaskPulse.Api after every write (loopback only) so that every open page can refresh.
+public sealed record ChangeNotification(string Resource, string Action, string Id, string? Kind, string? Actor);
 
 public sealed record ConnectionStats(
     string Id,

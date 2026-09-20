@@ -18,6 +18,8 @@ public sealed class UploadEntity
 
     public DateTime CreatedAtUtc { get; set; }
 
+    public string? OwnerId { get; set; }
+
     public UploadItem ToItem() => new(
         Id,
         FileName,
@@ -25,7 +27,8 @@ public sealed class UploadEntity
         Size,
         Source,
         Note,
-        new DateTimeOffset(DateTime.SpecifyKind(CreatedAtUtc, DateTimeKind.Utc)));
+        new DateTimeOffset(DateTime.SpecifyKind(CreatedAtUtc, DateTimeKind.Utc)),
+        OwnerId);
 
     public static UploadEntity From(UploadItem item) => new()
     {
@@ -36,5 +39,6 @@ public sealed class UploadEntity
         Source = item.Source,
         Note = item.Note,
         CreatedAtUtc = item.CreatedAt.UtcDateTime,
+        OwnerId = item.OwnerId,
     };
 }

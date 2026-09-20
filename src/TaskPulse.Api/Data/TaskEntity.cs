@@ -16,6 +16,12 @@ public sealed class TaskEntity
 
     public DateTime UpdatedAtUtc { get; set; }
 
+    public DateTime? DeletedAtUtc { get; set; }
+
+    public string? CreatedBy { get; set; }
+
+    public string? UpdatedBy { get; set; }
+
     public uint Version { get; set; }
 
     public TaskItem ToItem() => new(
@@ -23,8 +29,12 @@ public sealed class TaskEntity
         Title,
         Description,
         Status,
-        new DateTimeOffset(DateTime.SpecifyKind(CreatedAtUtc, DateTimeKind.Utc)),
-        new DateTimeOffset(DateTime.SpecifyKind(UpdatedAtUtc, DateTimeKind.Utc)));
+        Utc(CreatedAtUtc),
+        Utc(UpdatedAtUtc),
+        CreatedBy,
+        UpdatedBy,
+        DeletedAtUtc is { } deleted ? Utc(deleted) : null,
+        Version);
 
     public static TaskEntity From(TaskItem item) => new()
     {
@@ -34,6 +44,9 @@ public sealed class TaskEntity
         Status = item.Status,
         CreatedAtUtc = item.CreatedAt.UtcDateTime,
         UpdatedAtUtc = item.UpdatedAt.UtcDateTime,
+        DeletedAtUtc = item.DeletedAt?.UtcDateTime,
+        CreatedBy = item.CreatedBy,
+        UpdatedBy = item.UpdatedBy,
     };
 
     public void Apply(TaskItem item)
@@ -42,5 +55,9 @@ public sealed class TaskEntity
         Description = item.Description;
         Status = item.Status;
         UpdatedAtUtc = item.UpdatedAt.UtcDateTime;
+        DeletedAtUtc = item.DeletedAt?.UtcDateTime;
+        UpdatedBy = item.UpdatedBy;
     }
+
+    private static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc));
 }

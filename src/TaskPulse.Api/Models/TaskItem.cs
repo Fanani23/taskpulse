@@ -13,4 +13,8 @@ public sealed record TaskItem(
     string? Description,
     TaskItemStatus Status,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    string? CreatedBy = null,
+    string? UpdatedBy = null,
+    DateTimeOffset? DeletedAt = null,
+    uint Version = 0);

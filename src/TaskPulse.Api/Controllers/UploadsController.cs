@@ -1,4 +1,7 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using TaskPulse.Api.Infrastructure;
 using TaskPulse.Api.Models;
 using TaskPulse.Api.Services;
 
@@ -39,6 +42,8 @@ public sealed class UploadsController(IUploadService uploads) : ControllerBase
     }
 
     [HttpPost(Name = "CreateUploads")]
+    [Authorize]
+    [EnableRateLimiting(RateLimits.Writes)]
     [EndpointSummary("Store one or more files (multipart/form-data: files[], optional source tag and note).")]
     [Consumes("multipart/form-data")]
     [ProducesResponseType<IReadOnlyList<UploadItem>>(StatusCodes.Status201Created)]
@@ -64,9 +69,17 @@ public sealed class UploadsController(IUploadService uploads) : ControllerBase
     }
 
     [HttpDelete("{id:guid}", Name = "DeleteUpload")]
-    [EndpointSummary("Delete an upload and its stored bytes.")]
+    [Authorize]
+    [EnableRateLimiting(RateLimits.Writes)]
+    [EndpointSummary("Delete an upload and its stored bytes (owner or Admin).")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
-        => await uploads.DeleteAsync(id, cancellationToken) ? NoContent() : NotFound();
+        => await uploads.DeleteAsync(id, cancellationToken) switch
+        {
+            UploadDeleteOutcome.Deleted => NoContent(),
+            UploadDeleteOutcome.Forbidden => Problem(statusCode: StatusCodes.Status403Forbidden, title: "Only the owner or an Admin can delete this upload."),
+            _ => NotFound(),
+        };
 }

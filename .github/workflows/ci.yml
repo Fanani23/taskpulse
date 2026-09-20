@@ -36,6 +36,11 @@ jobs:
         run: dotnet format TaskPulse.sln --verify-no-changes --no-restore --exclude src/TaskPulse.Api/Data/Migrations
       - name: Build (warnings are errors)
         run: dotnet build TaskPulse.sln -c Release --no-restore
+      - name: Known-vulnerable packages fail the build
+        run: |
+          dotnet list TaskPulse.sln package --vulnerable --include-transitive > vulnerable.txt
+          cat vulnerable.txt
+          ! grep -qE "(High|Critical)" vulnerable.txt
       - name: Test (real PostgreSQL, one throw-away database per test class)
         run: dotnet test TaskPulse.sln -c Release --no-build --logger "trx;LogFileName=results.trx"
       - name: Shell scripts are valid

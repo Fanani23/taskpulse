@@ -21,7 +21,7 @@ public sealed class PreferencesAndUploadsTests(ApiFactory factory) : IClassFixtu
         0x42, 0x60, 0x82,
     ];
 
-    private readonly HttpClient _client = factory.CreateClient();
+    private readonly HttpClient _client = factory.CreateClient("1", "test@techtest.dev", "Admin");
 
     [Fact]
     public async Task Preferences_are_absent_until_saved_then_upserted()

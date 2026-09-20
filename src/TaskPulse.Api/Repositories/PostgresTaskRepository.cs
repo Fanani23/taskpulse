@@ -8,16 +8,16 @@ public sealed class PostgresTaskRepository(TasksDbContext db) : ITaskRepository
 {
     private const int RecentCount = 5;
 
-    public async Task<TaskItem?> GetAsync(Guid id, CancellationToken cancellationToken = default)
+    public async Task<TaskItem?> GetAsync(Guid id, bool includeDeleted = false, CancellationToken cancellationToken = default)
     {
-        var entity = await db.Tasks.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
+        var entity = await Live(includeDeleted).FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
         return entity?.ToItem();
     }
 
     public async Task<(IReadOnlyList<TaskItem> Items, int Total)> ListAsync(
-        TaskItemStatus? status, string? search, int page, int pageSize, CancellationToken cancellationToken = default)
+        TaskItemStatus? status, string? search, bool includeDeleted, int page, int pageSize, CancellationToken cancellationToken = default)
     {
-        IQueryable<TaskEntity> query = db.Tasks.AsNoTracking();
+        var query = Live(includeDeleted);
         if (status is { } wanted)
         {
             query = query.Where(t => t.Status == wanted);
@@ -68,14 +68,14 @@ public sealed class PostgresTaskRepository(TasksDbContext db) : ITaskRepository
         }
     }
 
-    public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+    public async Task<bool> PurgeAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var deleted = await db.Tasks.Where(t => t.Id == id).ExecuteDeleteAsync(cancellationToken);
         return deleted > 0;
     }
 
     public Task<int> CountAsync(CancellationToken cancellationToken = default)
-        => db.Tasks.CountAsync(cancellationToken);
+        => Live(false).CountAsync(cancellationToken);
 
     public async Task<TaskStats> GetStatsAsync(DateTimeOffset now, int days, CancellationToken cancellationToken = default)
     {
@@ -85,7 +85,7 @@ public sealed class PostgresTaskRepository(TasksDbContext db) : ITaskRepository
         var previousWeekStart = weekStart.AddDays(-7);
         var doneWindowStart = windowStart < previousWeekStart ? windowStart : previousWeekStart;
 
-        var byStatus = await db.Tasks.AsNoTracking()
+        var byStatus = await Live(false)
             .GroupBy(t => t.Status)
             .Select(g => new { Status = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.Status, x => x.Count, cancellationToken);
@@ -97,13 +97,13 @@ public sealed class PostgresTaskRepository(TasksDbContext db) : ITaskRepository
         var total = byStatus.Values.Sum();
         var done = byStatus[TaskItemStatus.Done];
 
-        var createdPerDay = await db.Tasks.AsNoTracking()
+        var createdPerDay = await Live(false)
             .Where(t => t.CreatedAtUtc >= windowStart)
             .GroupBy(t => t.CreatedAtUtc.Date)
             .Select(g => new { Day = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.Day, x => x.Count, cancellationToken);
 
-        var donePerDay = await db.Tasks.AsNoTracking()
+        var donePerDay = await Live(false)
             .Where(t => t.Status == TaskItemStatus.Done && t.UpdatedAtUtc >= doneWindowStart)
             .GroupBy(t => t.UpdatedAtUtc.Date)
             .Select(g => new { Day = g.Key, Count = g.Count() })
@@ -114,13 +114,13 @@ public sealed class PostgresTaskRepository(TasksDbContext db) : ITaskRepository
             .Select(day => new DailyTaskCount(DateOnly.FromDateTime(day), createdPerDay.GetValueOrDefault(day), donePerDay.GetValueOrDefault(day)))
             .ToList();
 
-        var oldestOpen = await db.Tasks.AsNoTracking()
+        var oldestOpen = await Live(false)
             .Where(t => t.Status != TaskItemStatus.Done)
             .OrderBy(t => t.CreatedAtUtc)
             .ThenBy(t => t.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
-        var recent = await db.Tasks.AsNoTracking()
+        var recent = await Live(false)
             .OrderByDescending(t => t.UpdatedAtUtc)
             .ThenBy(t => t.Id)
             .Take(RecentCount)
@@ -137,6 +137,9 @@ public sealed class PostgresTaskRepository(TasksDbContext db) : ITaskRepository
             recent.Select(Summarize).ToList(),
             daily);
     }
+
+    private IQueryable<TaskEntity> Live(bool includeDeleted)
+        => includeDeleted ? db.Tasks.AsNoTracking() : db.Tasks.AsNoTracking().Where(t => t.DeletedAtUtc == null);
 
     private static TaskSummary Summarize(TaskEntity entity)
     {

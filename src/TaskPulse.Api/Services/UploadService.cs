@@ -30,12 +30,21 @@ public interface IUploadService
 
     Task<UploadResult> CreateAsync(UploadForm form, CancellationToken cancellationToken = default);
 
-    Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<UploadDeleteOutcome> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
+}
+
+public enum UploadDeleteOutcome
+{
+    Deleted,
+    NotFound,
+    Forbidden,
 }
 
 public sealed class UploadService(
     IUploadRepository repository,
     IUploadStore store,
+    IAuditService audit,
+    ICurrentUser user,
     IOptions<ApiOptions> options,
     TimeProvider clock,
     ILogger<UploadService> logger) : IUploadService
@@ -89,7 +98,8 @@ public sealed class UploadService(
                 file.Length,
                 form.Source,
                 string.IsNullOrWhiteSpace(form.Note) ? null : form.Note.Trim(),
-                Timestamps.ToMicroseconds(clock.GetUtcNow()));
+                Timestamps.ToMicroseconds(clock.GetUtcNow()),
+                OwnerId: user.Actor);
 
             await using (var content = file.OpenReadStream())
             {
@@ -107,22 +117,35 @@ public sealed class UploadService(
             }
 
             items.Add(item);
-            logger.LogInformation("Upload {UploadId} stored ({Size} bytes, {ContentType})", item.Id, item.Size, item.ContentType);
+            logger.LogInformation("Upload {UploadId} stored ({Size} bytes, {ContentType}) by {Actor}", item.Id, item.Size, item.ContentType, user.Actor);
+            await audit.RecordAsync("create", "upload", item.Id.ToString(), $"{item.FileName} ({item.ContentType})", form.Source, cancellationToken);
         }
 
         return new UploadResult(items, UploadRejection.None, null);
     }
 
-    public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+    public async Task<UploadDeleteOutcome> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
+        var existing = await repository.GetAsync(id, cancellationToken);
+        if (existing is null)
+        {
+            return UploadDeleteOutcome.NotFound;
+        }
+
+        if (existing.OwnerId is not null && !user.IsAdmin && !string.Equals(existing.OwnerId, user.Actor, StringComparison.OrdinalIgnoreCase))
+        {
+            return UploadDeleteOutcome.Forbidden;
+        }
+
         if (!await repository.DeleteAsync(id, cancellationToken))
         {
-            return false;
+            return UploadDeleteOutcome.NotFound;
         }
 
         store.Delete(id);
-        logger.LogInformation("Upload {UploadId} deleted", id);
-        return true;
+        logger.LogInformation("Upload {UploadId} deleted by {Actor}", id, user.Actor);
+        await audit.RecordAsync("delete", "upload", id.ToString(), existing.FileName, existing.Source, cancellationToken);
+        return UploadDeleteOutcome.Deleted;
     }
 
     private static string SafeFileName(string? name, string contentType)

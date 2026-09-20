@@ -28,7 +28,8 @@ public sealed record UploadItem(
     long Size,
     string? Source,
     string? Note,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    string? OwnerId = null);
 
 public sealed record UploadListQuery
 {
