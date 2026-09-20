@@ -35,6 +35,32 @@ taskpulse/
 └── global.json                      SDK 10.0.1xx
 ```
 
+## Architecture
+
+```mermaid
+flowchart LR
+    B[Browser<br/>Vue portal / console page]
+    N[nginx :8088<br/>TLS on the VM · security headers<br/>/internal → 404 · /metrics loopback only]
+    A[TaskPulse.Api :5080<br/>controllers → services → repositories]
+    R[TaskPulse.Realtime :5090<br/>/ws · connection registry]
+    P[(PostgreSQL 18 :5433<br/>tasks · catalog · catalog_schemas<br/>preferences · uploads · audit)]
+    U[/uploads on disk<br/>StateDirectory/]
+    X[express-template :3000<br/>sign-in, HS256 access token]
+
+    B -- "REST · Bearer on writes" --> N --> A
+    B -- "WebSocket · {type:auth, token}" --> N --> R
+    A -- "EF Core · peer auth over the Unix socket" --> P
+    A -- bytes --> U
+    A -- "POST /internal/broadcast (loopback)" --> R
+    R -- "changed · broadcast · echo" --> B
+    X -. "same JWT secret" .-> A
+    X -. "same JWT secret" .-> R
+```
+
+Every write goes browser → nginx → API → PostgreSQL, and the API tells Realtime, which fans a `changed` event out to
+every socket — that is how a second tab refreshes without polling. The API and Realtime never share memory: on one
+box the hop is a loopback HTTP post that nginx never exposes; in compose it carries a shared header token.
+
 ## Quick start
 
 Prerequisites: Ubuntu 24.04+/WSL 2, `sudo apt install dotnet-sdk-10.0 postgresql nginx`.
@@ -208,8 +234,8 @@ Every response carries `X-Correlation-Id` — send your own to trace a request t
 
 Endpoint `ws://host/ws`. Text frames, JSON both ways.
 
-Client → server: `{"type":"echo"|"broadcast"|"ping","data":"..."}` — anything that is not a JSON
-object is treated as `echo` so raw tools (`websocat`, `wscat`) work too.
+Client → server: `{"type":"echo"|"broadcast"|"ping","data":"..."}` and `{"type":"auth","token":"<access token>"}` —
+anything that is not a JSON object is treated as `echo` so raw tools (`websocat`, `wscat`) work too.
 
 Server → client:
 
@@ -217,14 +243,25 @@ Server → client:
 |---|---|---|
 | `welcome` | on connect | `connectionId`, `connections` |
 | `echo` | reply to `echo` | `from`, `data` |
-| `broadcast` | fan-out to **every** connection | `from`, `data` |
+| `authed` | reply to a valid `auth` | `connectionId`, `user` (email from the token) |
+| `broadcast` | fan-out to **every** connection | `from`, `actor` (who said it), `data` |
 | `pong` | reply to `ping` | `from` |
 | `system` | someone joined / left | `event`, `connectionId`, `connections` |
-| `error` | bad JSON / unknown type / binary frame | `error` |
+| `changed` | after every API write (see change events above) | `resource`, `action`, `id`, `kind`, `actor` |
+| `error` | bad JSON / unknown type / binary frame / not signed in / rate limited | `error` |
 
-`GET /stats` lists live connections. `GET /health` for probes. `GET /` is a dependency-free test page.
+**Who may talk:** anyone may connect and listen (echo, ping, change events). `broadcast` — a message to every open
+tab — needs the connection to have sent `auth` with the access token from the Vue + Express sign-in first, validated
+with the same HS256 secret the API uses (`WebSocket:JwtSecret`, written by `install.sh` to `/etc/taskpulse/realtime.env`);
+the broadcast then carries the sender's email as `actor`. Without it an anonymous socket could spam every user.
+The portal's socket bus sends `auth` right after each handshake (and again after a token refresh).
 
-Limits: 64 KiB per message (close code 1009 beyond that), 30 s server-side keep-alive pings.
+**Limits, per connection:** `WebSocket:MessagesPerMinute` (120) — past it every message is answered with an `error`,
+past twice it the server closes with **1008**; `WebSocket:BroadcastsPerMinute` (30); 64 KiB per message (close code
+1009 beyond that); 30 s server-side keep-alive pings.
+
+`GET /stats` lists live connections (with `user` once authenticated). `GET /health` for probes. `GET /` is a
+dependency-free console page (its script and stylesheet are separate files so the CSP can forbid inline code).
 
 ## Design decisions — the "best practices" and why each one is there
 
