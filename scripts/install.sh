@@ -77,6 +77,11 @@ install -d -m 0755 "$ENV_DIR"
   done
 } > "$ENV_DIR/api.env"
 chmod 0600 "$ENV_DIR/api.env"
+{
+  printf 'WebSocket__JwtSecret=%s
+' "$JWT_SECRET"
+} > "$ENV_DIR/realtime.env"
+chmod 0600 "$ENV_DIR/realtime.env"
 
 BUILD_USER="${SUDO_USER:-$USER}"
 STAGE="$(mktemp -d)"

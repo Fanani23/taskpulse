@@ -20,6 +20,7 @@ builder.Services
 
 builder.Services.AddControllers();
 builder.Services.AddSingleton<ConnectionManager>();
+builder.Services.AddSingleton<TokenValidator>();
 builder.Services.AddSingleton<MessageRouter>();
 builder.Services.AddScoped<WebSocketSession>();
 builder.Services.AddHealthChecks();

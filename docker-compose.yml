@@ -41,6 +41,7 @@ services:
     environment:
       WebSocket__KeepAliveIntervalSeconds: "20"
       WebSocket__InternalToken: "${TASKPULSE_INTERNAL_TOKEN:-compose-internal-token}"
+      WebSocket__JwtSecret: "${TASKPULSE_JWT_SECRET:-compose-only-secret-change-me-32-chars}"
     ports:
       - "5090:8080"
     restart: unless-stopped

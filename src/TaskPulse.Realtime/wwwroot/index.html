@@ -201,12 +201,13 @@
           <option value="echo">echo</option>
           <option value="broadcast">broadcast</option>
           <option value="ping">ping</option>
+          <option value="auth">auth (token)</option>
           <option value="raw">raw text</option>
         </select>
         <label class="sr-only" for="text">Message</label>
         <input id="text" type="text" autocomplete="off" placeholder="Message text" value="hello from the browser">
         <button type="submit" id="send" class="primary" disabled>Send</button>
-        <span class="hint"><kbd>Enter</kbd> send · <kbd>Ctrl</kbd>+<kbd>K</kbd> clear log · open a second tab and use <b>broadcast</b> to see fan-out</span>
+        <span class="hint"><kbd>Enter</kbd> send · <kbd>Ctrl</kbd>+<kbd>K</kbd> clear log · open a second tab and use <b>broadcast</b> to see fan-out · <b>broadcast</b> needs <b>auth</b> first (paste the access token from the portal's Profile page)</span>
       </form>
     </section>
   </main>
@@ -312,10 +313,14 @@
         case 'broadcast': {
           const from = document.createElement('span');
           from.className = 'from';
-          from.textContent = m.from === state.myId ? 'you' : m.from;
+          from.textContent = m.from === state.myId ? 'you' : (m.actor ?? m.from);
           render('in', m.type, [from, document.createTextNode(': '), document.createTextNode(m.data ?? '')]);
           break;
         }
+        case 'authed':
+          state.user = m.user;
+          render('sys', 'authed', kv('signed in as', m.user));
+          break;
         case 'changed':
           render('in', 'changed', [...kv('who', m.actor ?? 'anonymous'), ...kv('did', `${m.action} ${m.resource}${m.kind ? '/' + m.kind : ''}`), ...kv('id', String(m.id).slice(0, 8))]);
           break;
@@ -387,11 +392,12 @@
 
     function send(type, text) {
       if (state.ws?.readyState !== WebSocket.OPEN) return;
-      const payload = type === 'raw' ? text : JSON.stringify(type === 'ping' ? { type } : { type, data: text });
+      const payload = type === 'raw' ? text : JSON.stringify(type === 'ping' ? { type } : type === 'auth' ? { type, token: text.trim() } : { type, data: text });
       if (type === 'ping') state.pingSentAt = performance.now();
       state.ws.send(payload);
       state.sent++; $('sent').textContent = state.sent;
-      render('out', type, payload);
+      // Never echo a token into the log.
+      render('out', type, type === 'auth' ? '{"type":"auth","token":"…"}' : payload);
     }
 
     async function pollStats() {
@@ -405,7 +411,7 @@
         ul.replaceChildren(...(s.clients.length ? s.clients.map((c) => {
           const li = document.createElement('li');
           if (c.id === state.myId) li.classList.add('me');
-          const id = document.createElement('span'); id.className = 'id'; id.textContent = c.id === state.myId ? `${c.id} (you)` : c.id;
+          const id = document.createElement('span'); id.className = 'id'; id.textContent = (c.id === state.myId ? `${c.id} (you)` : c.id) + (c.user ? ` · ${c.user}` : '');
           const n = document.createElement('span'); n.className = 'muted'; n.textContent = `↓${c.messagesReceived} ↑${c.messagesSent}`;
           li.append(id, n);
           return li;

@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace TaskPulse.Realtime.Models;
 
-public sealed record ClientMessage(string? Type, string? Data);
+public sealed record ClientMessage(string? Type, string? Data, string? Token);
 
 public sealed record ServerMessage(
     string Type,
@@ -18,7 +18,8 @@ public sealed record ServerMessage(
     string? Action = null,
     string? Id = null,
     string? Kind = null,
-    string? Actor = null)
+    string? Actor = null,
+    string? User = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -36,8 +37,11 @@ public sealed record ServerMessage(
     public static ServerMessage Echo(string from, string? data)
         => new("echo", DateTimeOffset.UtcNow, From: from, Data: data);
 
-    public static ServerMessage Broadcast(string from, string? data)
-        => new("broadcast", DateTimeOffset.UtcNow, From: from, Data: data);
+    public static ServerMessage Broadcast(string from, string? data, string? actor)
+        => new("broadcast", DateTimeOffset.UtcNow, From: from, Data: data, Actor: actor);
+
+    public static ServerMessage Authed(string connectionId, string user)
+        => new("authed", DateTimeOffset.UtcNow, ConnectionId: connectionId, User: user);
 
     public static ServerMessage Pong(string from)
         => new("pong", DateTimeOffset.UtcNow, From: from);
@@ -60,7 +64,8 @@ public sealed record ConnectionStats(
     string? RemoteAddress,
     DateTimeOffset ConnectedAt,
     long MessagesReceived,
-    long MessagesSent);
+    long MessagesSent,
+    string? User);
 
 public sealed record ServerStats(
     int Connections,

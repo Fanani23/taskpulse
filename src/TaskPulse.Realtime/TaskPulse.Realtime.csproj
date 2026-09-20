@@ -6,4 +6,8 @@
     <Description>WebSocket server sample (.NET 10) - echo / broadcast / ping with a connection registry, graceful shutdown and a browser test client.</Description>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.*" />
+  </ItemGroup>
+
 </Project>

@@ -8,7 +8,7 @@ using Xunit;
 
 namespace TaskPulse.Realtime.Tests;
 
-public sealed class WebSocketEndpointTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
+public sealed class WebSocketEndpointTests(RealtimeFactory factory) : IClassFixture<RealtimeFactory>
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
 
@@ -36,7 +36,7 @@ public sealed class WebSocketEndpointTests(WebApplicationFactory<Program> factor
     }
 
     [Fact]
-    public async Task Broadcast_reaches_every_connection()
+    public async Task Broadcast_needs_a_signed_in_connection_and_reaches_every_connection()
     {
         using var alice = await ConnectAsync();
         _ = await ReceiveAsync(alice);
@@ -47,15 +47,81 @@ public sealed class WebSocketEndpointTests(WebApplicationFactory<Program> factor
         Assert.Equal("system", joined.GetProperty("type").GetString());
         Assert.Equal("joined", joined.GetProperty("event").GetString());
 
+        // Anonymous: refused, nobody else hears it.
+        await SendAsync(alice, """{"type":"broadcast","data":"to everyone"}""");
+        var refused = await ReceiveAsync(alice);
+        Assert.Equal("error", refused.GetProperty("type").GetString());
+        Assert.Contains("Sign in", refused.GetProperty("error").GetString());
+
+        // A bad token is refused too.
+        await SendAsync(alice, """{"type":"auth","token":"not.a.token"}""");
+        Assert.Equal("Invalid or expired token.", (await ReceiveAsync(alice)).GetProperty("error").GetString());
+        await SendAsync(alice, $$"""{"type":"auth","token":"{{RealtimeFactory.IssueToken("7", "expired@techtest.dev", ["User"], TimeSpan.FromMinutes(-5))}}"}""");
+        Assert.Equal("Invalid or expired token.", (await ReceiveAsync(alice)).GetProperty("error").GetString());
+
+        // The access token from the Vue + Express sign-in attaches the identity; the broadcast names it.
+        await SendAsync(alice, $$"""{"type":"auth","token":"{{RealtimeFactory.IssueToken("7", "alice@techtest.dev", ["User"])}}"}""");
+        var authed = await ReceiveAsync(alice);
+        Assert.Equal("authed", authed.GetProperty("type").GetString());
+        Assert.Equal("alice@techtest.dev", authed.GetProperty("user").GetString());
+
         await SendAsync(alice, """{"type":"broadcast","data":"to everyone"}""");
 
         var seenByAlice = await ReceiveAsync(alice);
         var seenByBob = await ReceiveAsync(bob);
         Assert.Equal("broadcast", seenByAlice.GetProperty("type").GetString());
         Assert.Equal("to everyone", seenByBob.GetProperty("data").GetString());
+        Assert.Equal("alice@techtest.dev", seenByBob.GetProperty("actor").GetString());
+
+        var stats = await factory.CreateClient().GetFromJsonAsync<JsonElement>("/stats");
+        Assert.Contains(stats.GetProperty("clients").EnumerateArray(), c => c.TryGetProperty("user", out var u) && u.GetString() == "alice@techtest.dev");
 
         await alice.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
         await bob.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Rate_limits_answer_with_an_error_then_close_the_connection()
+    {
+        using var socket = await ConnectAsync();
+        _ = await ReceiveAsync(socket);
+        await SendAsync(socket, $$"""{"type":"auth","token":"{{RealtimeFactory.IssueToken("9", "spam@techtest.dev", ["User"])}}"}""");
+        Assert.Equal("authed", (await ReceiveAsync(socket)).GetProperty("type").GetString());
+
+        // Broadcasts: the limit is honoured per connection, the message past it is an error, the socket stays open.
+        for (var i = 0; i < RealtimeFactory.BroadcastsPerMinute; i++)
+        {
+            await SendAsync(socket, """{"type":"broadcast","data":"x"}""");
+            Assert.Equal("broadcast", (await ReceiveAsync(socket)).GetProperty("type").GetString());
+        }
+
+        await SendAsync(socket, """{"type":"broadcast","data":"one too many"}""");
+        var limited = await ReceiveAsync(socket);
+        Assert.Equal("error", limited.GetProperty("type").GetString());
+        Assert.Contains("Too many broadcasts", limited.GetProperty("error").GetString());
+
+        // Messages of any kind: past the limit every message is an error, past twice the limit the server closes 1008.
+        var sent = 1 + RealtimeFactory.BroadcastsPerMinute + 1;
+        for (; sent < RealtimeFactory.MessagesPerMinute; sent++)
+        {
+            await SendAsync(socket, """{"type":"ping"}""");
+            Assert.Equal("pong", (await ReceiveAsync(socket)).GetProperty("type").GetString());
+        }
+
+        await SendAsync(socket, """{"type":"ping"}""");
+        Assert.Contains("Too many messages", (await ReceiveAsync(socket)).GetProperty("error").GetString());
+
+        for (sent++; sent < RealtimeFactory.MessagesPerMinute * 2; sent++)
+        {
+            await SendAsync(socket, """{"type":"ping"}""");
+            _ = await ReceiveAsync(socket);
+        }
+
+        await SendAsync(socket, """{"type":"ping"}""");
+        using var cts = new CancellationTokenSource(Timeout);
+        var close = await socket.ReceiveAsync(new byte[1024], cts.Token);
+        Assert.Equal(WebSocketMessageType.Close, close.MessageType);
+        Assert.Equal(WebSocketCloseStatus.PolicyViolation, close.CloseStatus);
     }
 
     [Fact]

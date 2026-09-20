@@ -1,5 +1,6 @@
 using System.Net.WebSockets;
 using System.Text;
+using TaskPulse.Realtime.Infrastructure;
 using TaskPulse.Realtime.Models;
 
 namespace TaskPulse.Realtime.Services;
@@ -17,6 +18,12 @@ public sealed class WsConnection(string id, WebSocket socket, string? remoteAddr
 
     public long MessagesReceived => Interlocked.Read(ref _received);
     public long MessagesSent => Interlocked.Read(ref _sent);
+
+    // Set by a successful {"type":"auth"}; null until then. Only the receive loop writes it, so no locking.
+    public SocketIdentity? Identity { get; set; }
+
+    public RateGate Messages { get; } = new();
+    public RateGate Broadcasts { get; } = new();
 
     public void MarkReceived() => Interlocked.Increment(ref _received);
 
@@ -89,7 +96,7 @@ public sealed class WsConnection(string id, WebSocket socket, string? remoteAddr
         }
     }
 
-    public ConnectionStats ToStats() => new(Id, RemoteAddress, ConnectedAt, MessagesReceived, MessagesSent);
+    public ConnectionStats ToStats() => new(Id, RemoteAddress, ConnectedAt, MessagesReceived, MessagesSent, Identity?.Actor);
 
     public void Dispose() => _sendLock.Dispose();
 }
