@@ -7,6 +7,8 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
 {
     public DbSet<TaskEntity> Tasks => Set<TaskEntity>();
 
+    public DbSet<CatalogEntity> Catalog => Set<CatalogEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         var tasks = modelBuilder.Entity<TaskEntity>();
@@ -25,5 +27,23 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
 
         tasks.HasIndex(t => t.Status);
         tasks.HasIndex(t => t.CreatedAtUtc);
+
+        var catalog = modelBuilder.Entity<CatalogEntity>();
+        catalog.ToTable("catalog");
+        catalog.HasKey(c => c.Id);
+
+        catalog.Property(c => c.Kind).HasMaxLength(CatalogLimits.CodeMaxLength).IsRequired();
+        catalog.Property(c => c.Code).HasMaxLength(CatalogLimits.CodeMaxLength).IsRequired();
+        catalog.Property(c => c.Label).HasMaxLength(CatalogLimits.LabelMaxLength).IsRequired();
+        catalog.Property(c => c.Parents).HasColumnType("text[]").IsRequired();
+        catalog.Property(c => c.Attributes).HasColumnType("jsonb");
+
+        catalog.Property(c => c.CreatedAtUtc).HasColumnType("timestamp with time zone");
+        catalog.Property(c => c.UpdatedAtUtc).HasColumnType("timestamp with time zone");
+
+        catalog.Property(c => c.Version).IsRowVersion();
+
+        catalog.HasIndex(c => new { c.Kind, c.Code }).IsUnique();
+        catalog.HasIndex(c => c.Parents).HasMethod("gin");
     }
 }

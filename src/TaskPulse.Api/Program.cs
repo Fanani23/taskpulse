@@ -50,6 +50,8 @@ builder.Services.AddDbContext<TasksDbContext>(options =>
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<ITaskRepository, PostgresTaskRepository>();
 builder.Services.AddScoped<ITaskService, TaskService>();
+builder.Services.AddScoped<ICatalogRepository, PostgresCatalogRepository>();
+builder.Services.AddScoped<ICatalogService, CatalogService>();
 
 builder.Services.AddHealthChecks()
     .AddCheck<TaskStoreHealthCheck>("task-store", tags: ["ready"]);
