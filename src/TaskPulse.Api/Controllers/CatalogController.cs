@@ -41,6 +41,15 @@ public sealed class CatalogController(ICatalogService catalog) : ControllerBase
     public async Task<ActionResult<CatalogItem>> Get(string kind, string code, CancellationToken cancellationToken)
         => await catalog.GetAsync(kind, code, cancellationToken) is { } item ? Tagged(item) : NotFound();
 
+    // Who changed what on one item: the audit rows for it, with the field-level diff of every update.
+    [HttpGet(ItemRoute + "/history", Name = "CatalogItemHistory")]
+    [Authorize]
+    [EndpointSummary("History of one item (newest first, ≤ 200): actor, action, and for updates the fields that changed.")]
+    [ProducesResponseType<IReadOnlyList<AuditEntry>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<IReadOnlyList<AuditEntry>>> History(string kind, string code, [FromServices] IAuditService audit, CancellationToken cancellationToken)
+        => Ok(await audit.ListAsync(new AuditListQuery { Resource = CatalogService.Resource, Kind = kind, Target = code, Limit = AuditLimits.ListMax }, cancellationToken));
+
     [HttpPost(KindRoute, Name = "CreateCatalogItem")]
     [Authorize]
     [EnableRateLimiting(RateLimits.Writes)]

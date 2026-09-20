@@ -177,7 +177,7 @@ public sealed class CsvTransferService(ITaskService tasks, ICatalogService catal
             }
         }
 
-        await audit.RecordAsync("import", "catalog", kind, $"imported {created} new, {updated} updated, {skipped.Count} skipped", kind, cancellationToken);
+        await audit.RecordAsync("import", "catalog", kind, $"imported {created} new, {updated} updated, {skipped.Count} skipped", kind, cancellationToken: cancellationToken);
         return new ImportResult(created, updated, skipped);
     }
 

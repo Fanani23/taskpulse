@@ -22,7 +22,11 @@ public sealed record AuditEntry(
     string Resource,
     string? Kind,
     string TargetId,
-    string Summary);
+    string Summary,
+    IReadOnlyDictionary<string, FieldChange>? Changes = null);
+
+// One field before and after an update; catalog attributes appear as `attributes.<key>`.
+public sealed record FieldChange(object? From, object? To);
 
 // An event another service reports (part A's sign-ins): the actor is given, not taken from a bearer token.
 public sealed record ExternalAuditEvent
@@ -50,6 +54,13 @@ public sealed record AuditListQuery
 {
     [RegularExpression("^[a-z]{1,32}$", ErrorMessage = "resource must be a short lowercase word.")]
     public string? Resource { get; init; }
+
+    [StringLength(AuditLimits.KindMaxLength)]
+    public string? Kind { get; init; }
+
+    // one record's history: its id (task) or code (catalog item)
+    [StringLength(AuditLimits.TargetMaxLength)]
+    public string? Target { get; init; }
 
     [Range(1, AuditLimits.ListMax, ErrorMessage = "limit must be between {1} and {2}.")]
     public int? Limit { get; init; }

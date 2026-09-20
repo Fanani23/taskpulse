@@ -216,6 +216,10 @@ public sealed class TasksControllerTests(ApiFactory factory) : IClassFixture<Api
         Assert.Equal(HttpStatusCode.Created, create.StatusCode);
         var task = (await create.Content.ReadFromJsonAsync<TaskItem>(Json))!;
         Assert.Equal(TaskPriority.High, task.Priority);
+        // Low is the enum's CLR default; it must still be stored (a configured column default would swallow it).
+        var low = await (await _client.PostAsJsonAsync("/api/tasks", new { title = "low", priority = "Low" })).Content.ReadFromJsonAsync<TaskItem>(Json);
+        Assert.Equal(TaskPriority.Low, low!.Priority);
+        Assert.Equal(TaskPriority.Low, (await _client.GetFromJsonAsync<TaskItem>($"/api/tasks/{low.Id}", Json))!.Priority);
         Assert.Equal(due.ToUnixTimeSeconds(), task.DueAt!.Value.ToUnixTimeSeconds());
         Assert.Equal("1", task.AssigneeId);
         Assert.Equal(new[] { "docs", "release" }, task.Labels); // trimmed, lower-cased, de-duplicated, empties dropped

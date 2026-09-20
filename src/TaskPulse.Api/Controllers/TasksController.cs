@@ -93,6 +93,14 @@ public sealed class TasksController(ITaskService tasks) : ControllerBase
         };
     }
 
+    [HttpGet("{id:guid}/history", Name = "TaskHistory")]
+    [Authorize]
+    [EndpointSummary("History of one task (newest first, ≤ 200): actor, action, and for updates the fields that changed.")]
+    [ProducesResponseType<IReadOnlyList<AuditEntry>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<IReadOnlyList<AuditEntry>>> History(Guid id, [FromServices] IAuditService audit, CancellationToken cancellationToken)
+        => Ok(await audit.ListAsync(new AuditListQuery { Resource = TaskService.Resource, Target = id.ToString(), Limit = AuditLimits.ListMax }, cancellationToken));
+
     [HttpPost("{id:guid}/restore", Name = "RestoreTask")]
     [Authorize]
     [EnableRateLimiting(RateLimits.Writes)]

@@ -118,7 +118,7 @@ public sealed class UploadService(
 
             items.Add(item);
             logger.LogInformation("Upload {UploadId} stored ({Size} bytes, {ContentType}) by {Actor}", item.Id, item.Size, item.ContentType, user.Actor);
-            await audit.RecordAsync("create", "upload", item.Id.ToString(), $"{item.FileName} ({item.ContentType})", form.Source, cancellationToken);
+            await audit.RecordAsync("create", "upload", item.Id.ToString(), $"{item.FileName} ({item.ContentType})", form.Source, cancellationToken: cancellationToken);
         }
 
         return new UploadResult(items, UploadRejection.None, null);
@@ -144,7 +144,7 @@ public sealed class UploadService(
 
         store.Delete(id);
         logger.LogInformation("Upload {UploadId} deleted by {Actor}", id, user.Actor);
-        await audit.RecordAsync("delete", "upload", id.ToString(), existing.FileName, existing.Source, cancellationToken);
+        await audit.RecordAsync("delete", "upload", id.ToString(), existing.FileName, existing.Source, cancellationToken: cancellationToken);
         return UploadDeleteOutcome.Deleted;
     }
 

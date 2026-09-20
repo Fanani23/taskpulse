@@ -41,6 +41,26 @@ public sealed class CatalogControllerTests(ApiFactory factory) : IClassFixture<A
         var kinds = await _client.GetFromJsonAsync<List<CatalogKindSummary>>("/api/catalog", Json);
         Assert.Contains(kinds!, k => k.Kind == kind && k.Count == 1);
 
+        // The item's history says who changed what: the update carries a per-field (and per-attribute) diff.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await factory.CreateClient().GetAsync($"/api/catalog/{kind}/south-east-asia/history")).StatusCode);
+        var history = await _client.GetFromJsonAsync<List<AuditEntry>>($"/api/catalog/{kind}/south-east-asia/history", Json);
+        Assert.Equal(["update", "create"], history!.Select(h => h.Action));
+        Assert.All(history!, h => Assert.Equal("test@techtest.dev", h.Actor));
+        Assert.Null(history![1].Changes);
+        var changes = history[0].Changes!;
+        Assert.Equal(["attributes.lat", "attributes.note", "label", "sort"], changes.Keys.Order());
+        Assert.Equal("South East Asia!", ((JsonElement)changes["label"].From!).GetString());
+        Assert.Equal("SEA", ((JsonElement)changes["label"].To!).GetString());
+        Assert.Equal(-6.2, ((JsonElement)changes["attributes.lat"].From!).GetDouble());
+        Assert.Null(changes["attributes.lat"].To);
+        Assert.Equal("renamed", ((JsonElement)changes["attributes.note"].To!).GetString());
+
+        // an update that changes nothing is recorded without a diff
+        await _client.PutAsJsonAsync($"/api/catalog/{kind}/south-east-asia", new { label = "SEA", attributes = new { note = "renamed" }, sort = 1 });
+        history = await _client.GetFromJsonAsync<List<AuditEntry>>($"/api/catalog/{kind}/south-east-asia/history", Json);
+        Assert.Equal(3, history!.Count);
+        Assert.Null(history[0].Changes);
+
         var delete = await _client.DeleteAsync($"/api/catalog/{kind}/south-east-asia");
         Assert.Equal(HttpStatusCode.NoContent, delete.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"/api/catalog/{kind}/south-east-asia")).StatusCode);

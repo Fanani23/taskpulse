@@ -40,7 +40,8 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
 
         tasks.Property(t => t.Version).IsRowVersion();
 
-        tasks.Property(t => t.Priority).HasConversion<string>().HasMaxLength(16).HasDefaultValue(TaskPriority.Normal);
+        // no HasDefaultValue here: EF would drop Low (the CLR default, 0) from the INSERT and the column default would win
+        tasks.Property(t => t.Priority).HasConversion<string>().HasMaxLength(16);
         tasks.Property(t => t.DueAtUtc).HasColumnType("timestamp with time zone");
         tasks.Property(t => t.AssigneeId).HasMaxLength(64);
         tasks.Property(t => t.AssigneeName).HasMaxLength(TaskLimits.AssigneeMaxLength);
@@ -136,6 +137,8 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
         audit.Property(a => a.Resource).HasMaxLength(AuditLimits.ResourceMaxLength).IsRequired();
         audit.Property(a => a.Kind).HasMaxLength(AuditLimits.KindMaxLength);
         audit.Property(a => a.TargetId).HasMaxLength(AuditLimits.TargetMaxLength).IsRequired();
+        audit.Property(a => a.Changes).HasColumnType("jsonb");
+        audit.HasIndex(a => new { a.Resource, a.Kind, a.TargetId, a.Id });
         audit.Property(a => a.Summary).HasMaxLength(AuditLimits.SummaryMaxLength).IsRequired();
         audit.HasIndex(a => a.AtUtc);
         audit.HasIndex(a => a.Resource);

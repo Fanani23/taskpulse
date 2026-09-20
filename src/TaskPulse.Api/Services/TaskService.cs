@@ -13,7 +13,7 @@ public sealed class TaskService(
     TimeProvider clock,
     ILogger<TaskService> logger) : ITaskService
 {
-    private const string Resource = "task";
+    public const string Resource = "task";
 
     public async Task<PagedResponse<TaskItem>> ListAsync(TaskListQuery query, CancellationToken cancellationToken = default)
     {
@@ -97,7 +97,7 @@ public sealed class TaskService(
         }
 
         var action = updated.Status != existing.Status ? "move" : "update";
-        await audit.RecordAsync(action, Resource, id.ToString(), updated.Status != existing.Status ? $"{updated.Title} → {updated.Status}" : updated.Title, cancellationToken: cancellationToken);
+        await audit.RecordAsync(action, Resource, id.ToString(), updated.Status != existing.Status ? $"{updated.Title} → {updated.Status}" : updated.Title, diff: Diff.Of(existing, updated), cancellationToken: cancellationToken);
         return WriteResult<TaskItem>.Ok(await repository.GetAsync(id, false, cancellationToken) ?? updated);
     }
 

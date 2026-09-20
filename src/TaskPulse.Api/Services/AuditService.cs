@@ -7,7 +7,7 @@ namespace TaskPulse.Api.Services;
 
 public interface IAuditService
 {
-    Task RecordAsync(string action, string resource, string targetId, string summary, string? kind = null, CancellationToken cancellationToken = default);
+    Task RecordAsync(string action, string resource, string targetId, string summary, string? kind = null, IReadOnlyDictionary<string, FieldChange>? diff = null, CancellationToken cancellationToken = default);
 
     // Same row, actor supplied by the caller (events reported by another service).
     Task RecordExternalAsync(ExternalAuditEvent e, CancellationToken cancellationToken = default);
@@ -22,7 +22,7 @@ public sealed class AuditService(
     TimeProvider clock,
     ILogger<AuditService> logger) : IAuditService
 {
-    public async Task RecordAsync(string action, string resource, string targetId, string summary, string? kind = null, CancellationToken cancellationToken = default)
+    public async Task RecordAsync(string action, string resource, string targetId, string summary, string? kind = null, IReadOnlyDictionary<string, FieldChange>? diff = null, CancellationToken cancellationToken = default)
     {
         var entry = new AuditEntity
         {
@@ -33,6 +33,7 @@ public sealed class AuditService(
             Kind = kind,
             TargetId = Trim(targetId, AuditLimits.TargetMaxLength) ?? targetId,
             Summary = Trim(summary, AuditLimits.SummaryMaxLength) ?? summary,
+            Changes = Diff.Serialize(diff),
         };
 
         try
@@ -64,7 +65,7 @@ public sealed class AuditService(
     }
 
     public Task<IReadOnlyList<AuditEntry>> ListAsync(AuditListQuery query, CancellationToken cancellationToken = default)
-        => repository.ListAsync(query.Resource, query.Limit ?? AuditLimits.ListDefault, cancellationToken);
+        => repository.ListAsync(query.Resource, query.Kind, query.Target, query.Limit ?? AuditLimits.ListDefault, cancellationToken);
 
     private static string? Trim(string? value, int max)
         => value is null ? null : value.Length <= max ? value : value[..max];

@@ -129,7 +129,8 @@ Base path `/api/tasks`. JSON in and out; enums as strings; errors as RFC 9457 `a
 | `PUT` 🔒 | `/api/tasks/{id}` `{title, description?, status, priority?, dueAt?, assigneeId?, assigneeName?, labels?}` (+ `If-Match`) — a **replacement**, send the whole task | 200 + `ETag` | 400, 401, 404, **412** stale `If-Match` |
 | `DELETE` 🔒 | `/api/tasks/{id}` · `?permanent=true` (Admin) | 204 — soft delete, restorable · purge | 401, 403, 404 |
 | `POST` 🔒 | `/api/tasks/{id}/restore` | 200 | 401, 404 |
-| `GET` 🔒 | `/api/audit?resource=task&limit=20` | 200 `[{at, actor, action, resource, kind, targetId, summary}]`; `resource=auth` / `account` (sign-in events from part A) for Admins only | 400, 401, 403 |
+| `GET` 🔒 | `/api/audit?resource=task&kind=&target=&limit=20` | 200 `[{at, actor, action, resource, kind, targetId, summary, changes?}]` — `changes` is the per-field diff of an update (`{label: {from, to}, "attributes.color": {…}}`); `resource=auth` / `account` (sign-in events from part A) for Admins only | 400, 401, 403 |
+| `GET` 🔒 | `/api/tasks/{id}/history` · `/api/catalog/{kind}/{code}/history` | 200 one record's audit rows, newest first, with the diffs | 401 |
 | `POST` | `/api/audit` `{actor, action, resource, targetId, summary}` + `X-Internal-Token` | 202 — events reported by part A (`Api:AuditIngestToken`) | 400, 403 |
 | `GET` | `/api/tasks/export.csv?…same filters…` | 200 `text/csv` (id, title, description, status, priority, dueAt, assigneeId, assigneeName, labels, createdAt, updatedAt) | — |
 | `POST` 🔒 | `/api/tasks/import` (body `text/csv` or multipart `file`) | 200 `{created, updated, skipped:[{row, error}]}` — `title` required, an existing `id` is updated, labels `a\|b`, ≤ 2000 rows; bad rows are reported, the rest go through | 400, 401 |
@@ -158,7 +159,10 @@ dashboards and the console work without a session. The token's `sub`, `roles` an
 delete), and preferences can only be written for your own `user-<sub>` key. 401/403 are problem+json like every other error.
 
 **Audit trail** — every create / update / move / delete / restore / purge writes a row (`who, what, which, when, summary`)
-and `GET /api/audit` lists them newest first. A failure to write the audit row never fails the request (it is logged).
+and `GET /api/audit` lists them newest first. An update also stores **what changed**: a jsonb `{field: {from, to}}` diff
+(`Infrastructure/Diff.cs` — task fields, catalog label / parents / sort and every attribute key as `attributes.<key>`), so
+`…/history` on a task or a catalog item reads as a change log, not just a list of timestamps. A failure to write the
+audit row never fails the request (it is logged).
 
 **Soft delete** — `DELETE` stamps `deletedAt`; deleted tasks leave every list and the stats, `?includeDeleted=true` shows
 them, `POST …/restore` brings one back, and `?permanent=true` (Admin role) purges the row.
@@ -375,7 +379,11 @@ TaskPulse.Api.Tests   40 passed   tasks: CRUD round-trip (re-read after update),
                                        and schema, preferences for someone else's key 403, audit row names the actor,
                                        soft delete -> includeDeleted -> restore, ETag round trip + stale If-Match 412,
                                        429 with Retry-After past the write limit, catalog paging headers,
-                                       schema refused when items violate it then enforced on create
+                                       schema refused when items violate it then enforced on create,
+                                       task history: the move's diff (status from → to), anonymous 401
+                                     catalog history: create + update rows with the label / sort / per-attribute diff,
+                                       a no-op update stores no diff, anonymous 401
+                                     priority Low (the enum's CLR default) is stored, not swallowed by a column default
                                      change stream: a write lands in the Redis stream with the actor (needs Redis)
                                      webhooks: non-Admin 403, plain-http URL 400, signed delivery with the actor,
                                        resource filter, 3 attempts on 503 logged + failure count, off = no deliveries

@@ -128,6 +128,14 @@ public sealed class SecurityAndContractTests(ApiFactory factory) : IClassFixture
         Assert.Contains(mine, e => e.Action == "move" && e.Summary.EndsWith("Done"));
         Assert.True(mine[0].At >= mine[^1].At);
 
+        // one task's history carries the field diff of each update
+        var history = await _user.GetFromJsonAsync<List<AuditEntry>>($"/api/tasks/{created.Id}/history", Json);
+        Assert.Equal(["move", "create"], history!.Select(h => h.Action));
+        Assert.Equal(["status"], history![0].Changes!.Keys);
+        Assert.Equal("Todo", ((JsonElement)history[0].Changes!["status"].From!).GetString());
+        Assert.Equal("Done", ((JsonElement)history[0].Changes!["status"].To!).GetString());
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _anonymous.GetAsync($"/api/tasks/{created.Id}/history")).StatusCode);
+
         Assert.Equal(HttpStatusCode.BadRequest, (await _user.GetAsync("/api/audit?limit=0")).StatusCode);
 
         // Sign-in events reported by part A: ingest needs the internal token, reading them needs Admin.

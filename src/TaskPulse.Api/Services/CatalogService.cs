@@ -13,7 +13,7 @@ public sealed class CatalogService(
     TimeProvider clock,
     ILogger<CatalogService> logger) : ICatalogService
 {
-    private const string Resource = "catalog";
+    public const string Resource = "catalog";
 
     public Task<IReadOnlyList<CatalogKindSummary>> ListKindsAsync(CancellationToken cancellationToken = default)
         => repository.ListKindsAsync(cancellationToken);
@@ -64,7 +64,7 @@ public sealed class CatalogService(
         }
 
         logger.LogInformation("Catalog {Kind}/{Code} created by {Actor}", kind, code, user.Actor);
-        await audit.RecordAsync("create", Resource, code, item.Label, kind, cancellationToken);
+        await audit.RecordAsync("create", Resource, code, item.Label, kind, cancellationToken: cancellationToken);
         return CatalogWriteResult.Ok(await repository.GetAsync(kind, code, cancellationToken) ?? item);
     }
 
@@ -103,7 +103,7 @@ public sealed class CatalogService(
             return CatalogWriteResult.NotFound;
         }
 
-        await audit.RecordAsync("update", Resource, code, updated.Label, kind, cancellationToken);
+        await audit.RecordAsync("update", Resource, code, updated.Label, kind, Diff.Of(existing, updated), cancellationToken);
         return CatalogWriteResult.Ok(await repository.GetAsync(kind, code, cancellationToken) ?? updated);
     }
 
@@ -116,7 +116,7 @@ public sealed class CatalogService(
         }
 
         logger.LogInformation("Catalog {Kind}/{Code} deleted by {Actor}", kind, code, user.Actor);
-        await audit.RecordAsync("delete", Resource, code, existing.Label, kind, cancellationToken);
+        await audit.RecordAsync("delete", Resource, code, existing.Label, kind, cancellationToken: cancellationToken);
         return true;
     }
 
@@ -150,7 +150,7 @@ public sealed class CatalogService(
 
         var stored = new CatalogSchema(kind, request.Schema!.Value.Clone(), Now(), user.Actor);
         await repository.UpsertSchemaAsync(stored, cancellationToken);
-        await audit.RecordAsync("schema", Resource, kind, $"schema for {kind} set", kind, cancellationToken);
+        await audit.RecordAsync("schema", Resource, kind, $"schema for {kind} set", kind, cancellationToken: cancellationToken);
         return (true, [], stored);
     }
 
@@ -161,7 +161,7 @@ public sealed class CatalogService(
             return false;
         }
 
-        await audit.RecordAsync("schema", Resource, kind, $"schema for {kind} removed", kind, cancellationToken);
+        await audit.RecordAsync("schema", Resource, kind, $"schema for {kind} removed", kind, cancellationToken: cancellationToken);
         return true;
     }
 
