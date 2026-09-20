@@ -6,8 +6,8 @@ upgrade, Docker images, integration tests, and a smoke test.
 
 | Service | What it does | Port |
 |---|---|---|
-| `TaskPulse.Api` | CRUD for *tasks* (+ stats, search), a *catalog* of reference data, per-user *preferences* and file *uploads* on **PostgreSQL via EF Core** (migrations, optimistic concurrency, data survives restarts); paging + filtering, validation, OpenAPI, health checks | 5080 |
-| `TaskPulse.Realtime` | WebSocket echo / broadcast / ping with a connection registry, graceful shutdown, browser test client | 5090 |
+| `TaskPulse.Api` | CRUD for *tasks* (+ stats, search), a *catalog* of reference data (paged, optional JSON Schema per kind), per-user *preferences* and file *uploads* on **PostgreSQL via EF Core** (migrations, optimistic concurrency, data survives restarts); JWT bearer on writes, audit trail, soft delete, ETag/`If-Match`, rate limit, change events to the socket server, `/metrics`, OpenAPI, health checks | 5080 |
+| `TaskPulse.Realtime` | WebSocket echo / broadcast / ping with a connection registry, `changed` fan-out from the API (`/internal/broadcast`), graceful shutdown, browser test client | 5090 |
 | nginx | Single public entry point in front of both, handles the WebSocket `Upgrade` | 8088 |
 | PostgreSQL 18 | The store. Service connects over the Unix socket with peer auth — no password anywhere | 5433 |
 
@@ -17,10 +17,10 @@ taskpulse/
 │   ├── TaskPulse.Api/          Program.cs, Controllers/ → Services/ → Repositories/ → Data/ (EF Core), Models/ (DTOs), Infrastructure/
 │   └── TaskPulse.Realtime/         Program.cs, Controllers/ (/ws, /stats), Services/ (session, connection manager, router), Models/, wwwroot/
 ├── tests/
-│   ├── TaskPulse.Api.Tests/    26 integration tests through TestServer, each class on its own throw-away PostgreSQL database
-│   └── TaskPulse.Realtime.Tests/   5 integration tests through TestServer's WebSocket client
+│   ├── TaskPulse.Api.Tests/    35 integration tests through TestServer, each class on its own throw-away PostgreSQL database
+│   └── TaskPulse.Realtime.Tests/   6 integration tests through TestServer's WebSocket client
 ├── deploy/
-│   ├── systemd/                     taskpulse-api.service, taskpulse-realtime.service
+│   ├── systemd/                     taskpulse-api.service, taskpulse-realtime.service, taskpulse-backup.service + .timer (02:30 nightly)
 │   ├── nginx/                       taskpulse.conf (host), taskpulse.compose.conf (docker)
 │   └── docker/                      multi-stage Dockerfiles
 ├── scripts/
@@ -28,6 +28,7 @@ taskpulse/
 │   ├── test.sh                      dotnet test against the local cluster (detects its port)
 │   ├── smoke-test.sh                end-to-end check of a running deployment
 │   ├── seed.sh                      40 sample tasks + the catalog kinds, written through the API (idempotent; --force to add again)
+│   ├── backup.sh                    pg_dump + uploads tarball, keeps 7; --restore <archive>
 │   └── run-dev.sh                   both services from source with hot reload
 ├── docker-compose.yml
 ├── Directory.Build.props            net10.0, nullable, warnings-as-errors, invariant globalization
@@ -43,7 +44,7 @@ Prerequisites: Ubuntu 24.04+/WSL 2, `sudo apt install dotnet-sdk-10.0 postgresql
 ```bash
 dotnet build TaskPulse.sln -c Release     # 0 warnings — warnings are errors
 sudo scripts/install.sh                    # once: creates the taskpulse_dev role the tests use (and deploys)
-scripts/test.sh                            # 31 tests on the real PostgreSQL cluster
+scripts/test.sh                            # 41 tests on the real PostgreSQL cluster
 ```
 
 ### 2. Run — pick one
@@ -73,7 +74,9 @@ docker compose up --build                   # REST :5080, WS :5090, nginx :8088
 ```bash
 # REST
 curl -s http://127.0.0.1:8088/api/tasks | jq
-curl -s -X POST http://127.0.0.1:8088/api/tasks -H 'Content-Type: application/json' \
+# writes need a bearer token: the access token part A hands out at sign-in, or one signed with the same secret
+# (scripts/smoke-test.sh mints one from /etc/taskpulse/api.env — see mint_token there)
+curl -s -X POST http://127.0.0.1:8088/api/tasks -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
      -d '{"title":"Review the C# assignment","description":"Sat 19 Sep"}' | jq
 curl -s http://127.0.0.1:8088/openapi/v1.json | jq '.paths | keys'
 
@@ -90,17 +93,49 @@ Base path `/api/tasks`. JSON in and out; enums as strings; errors as RFC 9457 `a
 |---|---|---|---|
 | `GET` | `/api/tasks?status=Todo&q=postgres&page=1&pageSize=20` | 200 `{items, page, pageSize, total}` | 400 (`q` > 100 chars) |
 | `GET` | `/api/tasks/stats?days=14` | 200 `{total, byStatus, completionRate, createdToday, doneThisWeek, donePreviousWeek, oldestOpen, recentlyUpdated[], daily[]}` | 400 (`days` ∉ 1–90) |
-| `GET` | `/api/tasks/{id}` | 200 | 404 |
-| `POST` | `/api/tasks` `{title, description?}` | 201 + `Location` | 400 validation |
-| `PUT` | `/api/tasks/{id}` `{title, description?, status}` | 200 | 400 validation, 404 |
-| `DELETE` | `/api/tasks/{id}` | 204 | 404 |
+| `GET` | `/api/tasks/{id}?includeDeleted=` | 200 + `ETag: W/"<version>"` | 404 |
+| `POST` 🔒 | `/api/tasks` `{title, description?}` | 201 + `Location` | 400 validation, 401 |
+| `PUT` 🔒 | `/api/tasks/{id}` `{title, description?, status}` (+ `If-Match`) | 200 + `ETag` | 400, 401, 404, **412** stale `If-Match` |
+| `DELETE` 🔒 | `/api/tasks/{id}` · `?permanent=true` (Admin) | 204 — soft delete, restorable · purge | 401, 403, 404 |
+| `POST` 🔒 | `/api/tasks/{id}/restore` | 200 | 401, 404 |
+| `GET` | `/api/audit?resource=task&limit=20` | 200 `[{at, actor, action, resource, kind, targetId, summary}]` | 400 |
 | `GET` | `/health` · `/health/ready` | 200 `Healthy` | 503 |
-| `GET` | `/openapi/v1.json` | OpenAPI 3 document | — |
+| `GET` | `/metrics` | Prometheus text (loopback only through nginx) | — |
+| `GET` | `/openapi/v1.json` | OpenAPI 3 document (bearer scheme declared) | — |
 
 `status` ∈ `Todo | InProgress | Done`. `q` is a case-insensitive substring match on title and description (LIKE
 wildcards are escaped). `pageSize` is clamped to `Api:MaxPageSize` (100 by default). `/api/tasks/stats` answers
 with three grouped queries (by status, created per day, done per day) — no row is loaded — so a dashboard costs
 one request however many tasks exist.
+
+### Authentication, audit, concurrency, limits
+
+🔒 **Every write needs a bearer token** — the access token that part A (express-template) issues at sign-in. TaskPulse
+validates it with the same HS256 secret (`Api:JwtSecret`, written by `install.sh` from `TASKPULSE_JWT_SECRET`; the kit's
+bootstrap replaces the template's 9-character default with 48 random characters first). Reads stay open so the public
+dashboards and the console work without a session. The token's `sub`, `roles` and `user_meta.email` become the
+**actor**: `createdBy`/`updatedBy` on tasks and catalog items, `ownerId` on uploads (only the owner or an `Admin` may
+delete), and preferences can only be written for your own `user-<sub>` key. 401/403 are problem+json like every other error.
+
+**Audit trail** — every create / update / move / delete / restore / purge writes a row (`who, what, which, when, summary`)
+and `GET /api/audit` lists them newest first. A failure to write the audit row never fails the request (it is logged).
+
+**Soft delete** — `DELETE` stamps `deletedAt`; deleted tasks leave every list and the stats, `?includeDeleted=true` shows
+them, `POST …/restore` brings one back, and `?permanent=true` (Admin role) purges the row.
+
+**Lost-update protection** — single GETs answer with a weak `ETag` built from PostgreSQL's `xmin`; send it back in
+`If-Match` on `PUT` and a stale value is refused with **412** instead of overwriting someone else's change (`xmin` also
+guards the database itself). Without `If-Match` the last write wins, as before.
+
+**Rate limit** — writes are limited per client address (`Api:WritesPerMinute`, default 120/min, fixed window); the 121st
+answers **429** problem+json with `Retry-After`. Reads are not limited.
+
+**Change events** — after every write the API posts `{type:"changed", resource, action, id, kind, actor}` to
+TaskPulse.Realtime's `POST /internal/broadcast` (loopback-only; nginx returns 404 for `/internal/`; a shared
+`X-Internal-Token` covers Docker compose where the two are separate hosts) and Realtime fans it out to every socket, so
+every open page refreshes without polling. Fire-and-forget through a bounded channel: a write never waits for the socket server.
+
+**Metrics** — `/metrics` (prometheus-net: request counts, durations, in-flight) for scraping from the box.
 
 ### Catalog — reference data with CRUD (`/api/catalog`)
 
@@ -112,29 +147,38 @@ links, form options, tags — is a *kind* here. An item has a `code` unique with
 | Method | Path | Success | Errors |
 |---|---|---|---|
 | `GET` | `/api/catalog` | 200 `[{kind, count}]` | — |
-| `GET` | `/api/catalog/{kind}?parent=asia&q=rus` | 200 `[items]` (≤ 500, by `sort` then `label`) | — |
-| `GET` | `/api/catalog/{kind}/{code}` | 200 | 404 |
-| `POST` | `/api/catalog/{kind}` `{code?, label, parents?, attributes?, sort?}` | 201 + `Location`; `code` derived from `label` when omitted | 400 validation, 409 duplicate code |
-| `PUT` | `/api/catalog/{kind}/{code}` `{label, parents?, attributes?, sort?}` | 200 | 400, 404 |
-| `DELETE` | `/api/catalog/{kind}/{code}` | 204 — the code is also removed from every item's `parents` | 404 |
+| `GET` | `/api/catalog/{kind}?parent=asia&q=rus&page=1&pageSize=100` | 200 `[items]` (by `sort` then `label`) + `X-Total-Count`, `X-Page`, `X-Page-Size` | 400 bad paging |
+| `GET` | `/api/catalog/{kind}/{code}` | 200 + `ETag` | 404 |
+| `POST` 🔒 | `/api/catalog/{kind}` `{code?, label, parents?, attributes?, sort?}` | 201 + `Location`; `code` derived from `label` when omitted | 400 validation / schema, 401, 409 duplicate code |
+| `PUT` 🔒 | `/api/catalog/{kind}/{code}` `{label, parents?, attributes?, sort?}` (+ `If-Match`) | 200 + `ETag` | 400, 401, 404, 412 |
+| `DELETE` 🔒 | `/api/catalog/{kind}/{code}` | 204 — the code is also removed from every item's `parents` | 401, 404 |
+| `GET` | `/api/catalog/{kind}/_schema` | 200 the JSON Schema for this kind's `attributes` | 404 none set |
+| `PUT` 🔒 Admin | `/api/catalog/{kind}/_schema` `{schema}` | 200 | 400 invalid schema **or existing items violate it** (listed), 401, 403 |
+| `DELETE` 🔒 Admin | `/api/catalog/{kind}/_schema` | 204 | 401, 403, 404 |
 
 `kind` and `code` match `^[a-z0-9][a-z0-9-]{0,63}$` (anything else is a 404 from routing). One table, a unique
 index on `(kind, code)` and a GIN index on `parents` — a dedicated entity per list would have been nine copies of
 the same controller. `scripts/seed.sh` seeds the kinds the portal needs and skips a kind that already has items.
 
+`attributes` stays free-form by default; an Admin can pin a **JSON Schema** per kind (`_schema`, JsonSchema.Net,
+≤ 16 KB) and from then on every create/update is validated against it (400 with the schema errors). A schema that the
+existing items already violate is refused, so a kind never ends up half-conforming. Lists are paged the same way tasks
+are (`page`, `pageSize` ≤ `Api:MaxPageSize`) and carry the total in headers so the cascade dropdowns can stay one call.
+
 ### Preferences (`/api/preferences/{userId}`)
 
 `GET` always 200 — the defaults with `saved: false` until the user has saved once, `PUT {theme: light|dark|system, nickname?}` (upsert, 200), `DELETE` (204). The portal keys
-this by the user id in its JWT, so theme and nickname survive a reload and a different browser.
+this by the user id in its JWT (`user-<sub>`), so theme and nickname survive a reload and a different browser. Writes
+🔒 need a token and answer 403 unless the key is the caller's own (or the caller is `Admin`).
 
 ### Uploads (`/api/uploads`)
 
 | Method | Path | Success | Errors |
 |---|---|---|---|
-| `POST` | `multipart/form-data`: `files[]`, `source?` (tag), `note?` | 201 `[items]` | 400 no file, 413 > `Api:MaxUploadBytes` (2 MB), 415 type not png/jpeg/webp/pdf/txt **or bytes that do not match the declared type** |
+| `POST` 🔒 | `multipart/form-data`: `files[]`, `source?` (tag), `note?` | 201 `[items]` (with `ownerId`) | 400 no file, 401, 413 > `Api:MaxUploadBytes` (2 MB), 415 type not png/jpeg/webp/pdf/txt **or bytes that do not match the declared type** |
 | `GET` | `/api/uploads?source=signpad` | 200 newest first (≤ 100) | — |
 | `GET` | `/api/uploads/{id}` · `/api/uploads/{id}/content` | 200 metadata · the bytes with the original content type, range requests supported | 404 |
-| `DELETE` | `/api/uploads/{id}` | 204 (row and file) | 404 |
+| `DELETE` 🔒 | `/api/uploads/{id}` | 204 (row and file) | 401, 403 not the owner (Admin may), 404 |
 
 Bytes live under `Api:UploadDirectory` — `/var/lib/taskpulse/uploads` via systemd `StateDirectory=` (the only path
 the hardened unit can write), a named volume in compose — and only the metadata is in PostgreSQL. Files are stored
@@ -142,8 +186,8 @@ under their id, never under the client-supplied name.
 
 **Browsers on another origin:** CORS is off unless `Api:AllowedOrigins` lists the origin
 (`Api__AllowedOrigins__0=https://portal.example`; `install.sh` writes it from `TASKPULSE_ALLOWED_ORIGINS="origin ..."`).
-Allowed origins get `GET POST PUT DELETE`, the `Content-Type` request header and the `Location` response header — nothing
-else, and never `*`. The Vue + Express portal (part A) uses this to show a live task board driven by this API and the
+Allowed origins get `GET POST PUT DELETE`, the `Content-Type`, `Authorization` and `If-Match` request headers and the
+`Location`, `ETag`, `X-Total-Count`, `X-Page`, `X-Page-Size` response headers — nothing else, and never `*`. The Vue + Express portal (part A) uses this to show a live task board driven by this API and the
 WebSocket server.
 
 **Storage:** PostgreSQL 18 through EF Core (Npgsql). Schema managed by migrations (applied at startup),
@@ -237,7 +281,7 @@ Limits: 64 KiB per message (close code 1009 beyond that), 30 s server-side keep-
 ## Tests
 
 ```
-TaskPulse.Api.Tests   26 passed   tasks: CRUD round-trip (re-read after update), data survives a process restart,
+TaskPulse.Api.Tests   35 passed   tasks: CRUD round-trip (re-read after update), data survives a process restart,
                                        concurrent updates, validation 400, bad enum 400, 404, page-size clamp,
                                        q search + LIKE escaping, stats shape and range check, CORS allow-list,
                                        health, correlation id, OpenAPI
@@ -245,8 +289,14 @@ TaskPulse.Api.Tests   26 passed   tasks: CRUD round-trip (re-read after update),
                                        parent filter / search / ordering, delete cascades out of parents, bad input
                                      preferences: defaults before save, upsert + read back, invalid theme, defaults again after delete
                                      uploads: round trip incl. downloaded bytes, 413 / 415 (signature mismatch) / 400
-TaskPulse.Realtime.Tests   5 passed   welcome/echo/pong, broadcast to two clients, raw text + bad JSON,
-                                       plain GET on /ws is 400, /stats + /health
+                                     security + contract: anonymous write 401, expired token 401, wrong role 403 on purge
+                                       and schema, preferences for someone else's key 403, audit row names the actor,
+                                       soft delete -> includeDeleted -> restore, ETag round trip + stale If-Match 412,
+                                       429 with Retry-After past the write limit, catalog paging headers,
+                                       schema refused when items violate it then enforced on create
+TaskPulse.Realtime.Tests   6 passed   welcome/echo/pong, broadcast to two clients, raw text + bad JSON,
+                                       plain GET on /ws is 400, /stats + /health, /internal/broadcast fans out `changed`
+                                       (and refuses a forwarded request)
 ```
 
 All are integration tests through `WebApplicationFactory<Program>` — real routing, JSON, middleware, the real
