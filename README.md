@@ -248,10 +248,18 @@ this by the user id in its JWT (`user-<sub>`), so theme and nickname survive a r
 
 | Method | Path | Success | Errors |
 |---|---|---|---|
-| `POST` 🔒 | `multipart/form-data`: `files[]`, `source?` (tag), `note?` | 201 `[items]` (with `ownerId`) | 400 no file, 401, 413 > `Api:MaxUploadBytes` (2 MB), 415 type not png/jpeg/webp/pdf/txt **or bytes that do not match the declared type** |
+| `POST` 🔒 | `multipart/form-data`: `files[]`, `source?` (tag), `note?` | 201 `[items]` (with `ownerId`) | 400 no file, 401, 413 > `Api:MaxUploadBytes` (2 MB), 415 type not png/jpeg/webp/pdf/txt, **bytes that do not match the declared type, or an image that does not decode**; 413 also for an image over 40 MP / 12 000 px a side |
 | `GET` | `/api/uploads?source=signpad` | 200 newest first (≤ 100) | — |
 | `GET` | `/api/uploads/{id}` · `/api/uploads/{id}/content` | 200 metadata · the bytes with the original content type, range requests supported | 404 |
 | `DELETE` 🔒 | `/api/uploads/{id}` | 204 (row and file) | 401, 403 not the owner (Admin may), 404 |
+
+**Images are re-encoded before they are stored** (`ImageSanitizer`, ImageSharp): the file is decoded and written
+out again in its own format, so only the pixels survive — EXIF (GPS, camera; the orientation is applied first so
+nothing comes back rotated), ICC, XMP and text chunks are gone, and so is anything glued after the image data, the
+classic place to hide a script or a second file type. A file that merely begins with a PNG/JPEG/WebP signature is
+refused (415) instead of being served to other users, and the dimensions are read from the header before any
+pixel is allocated, so a "decompression bomb" is refused (413) rather than run out of memory. `size` is the size
+as stored. PDFs and text files are stored as sent.
 
 Bytes live under `Api:UploadDirectory` — `/var/lib/taskpulse/uploads` via systemd `StateDirectory=` (the only path
 the hardened unit can write), a named volume in compose — and only the metadata is in PostgreSQL. Files are stored
@@ -390,14 +398,17 @@ run it against `:8088` to watch the edge limiter instead.
 ## Tests
 
 ```
-TaskPulse.Api.Tests   44 passed   tasks: CRUD round-trip (re-read after update), data survives a process restart,
+TaskPulse.Api.Tests   45 passed   tasks: CRUD round-trip (re-read after update), data survives a process restart,
                                        concurrent updates, validation 400, bad enum 400, 404, page-size clamp,
                                        q search + LIKE escaping, stats shape and range check, CORS allow-list,
                                        health, correlation id, OpenAPI
                                      catalog: CRUD with derived code and jsonb attributes, 409 on duplicate,
                                        parent filter / search / ordering, delete cascades out of parents, bad input
                                      preferences: defaults before save, upsert + read back, invalid theme, defaults again after delete
-                                     uploads: round trip incl. downloaded bytes, 413 / 415 (signature mismatch) / 400
+                                     uploads: round trip (the download is the re-encoded PNG of the same pixels),
+                                       413 / 415 (signature mismatch) / 400, re-encode drops a tEXt chunk, an EXIF
+                                       profile and a trailing payload, a JPEG labelled png and a signature + garbage
+                                       are 415, a 30000 × 30000 header is refused before decoding
                                      security + contract: anonymous write 401, expired token 401, wrong role 403 on purge
                                        and schema, preferences for someone else's key 403, audit row names the actor,
                                        soft delete -> includeDeleted -> restore, ETag round trip + stale If-Match 412,

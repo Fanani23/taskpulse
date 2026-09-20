@@ -88,20 +88,63 @@ public sealed class UploadService(
             }
         }
 
+        // Images are decoded and re-encoded first (ImageSanitizer): what is stored is pixels only - no EXIF/GPS, no
+        // ICC/XMP, no trailing payload - and a file that only pretends to be an image is refused here, not served later.
+        var contents = new List<(IFormFile File, Stream Content)>(files.Count);
+        try
+        {
+            foreach (var file in files)
+            {
+                if (ImageSanitizer.IsImage(file.ContentType))
+                {
+                    await using var original = file.OpenReadStream();
+                    var buffered = new MemoryStream();
+                    await original.CopyToAsync(buffered, cancellationToken);
+                    buffered.Position = 0;
+                    var (verdict, clean) = await ImageSanitizer.ReencodeAsync(buffered, file.ContentType, cancellationToken);
+                    await buffered.DisposeAsync();
+                    if (verdict == ImageVerdict.TooBig)
+                    {
+                        return new UploadResult([], UploadRejection.TooLarge, file.FileName);
+                    }
+
+                    if (verdict != ImageVerdict.Clean || clean is null)
+                    {
+                        return new UploadResult([], UploadRejection.UnsupportedType, file.FileName);
+                    }
+
+                    contents.Add((file, clean));
+                }
+                else
+                {
+                    contents.Add((file, file.OpenReadStream()));
+                }
+            }
+        }
+        catch
+        {
+            foreach (var (_, content) in contents)
+            {
+                await content.DisposeAsync();
+            }
+
+            throw;
+        }
+
         var items = new List<UploadItem>(files.Count);
-        foreach (var file in files)
+        foreach (var (file, content) in contents)
         {
             var item = new UploadItem(
                 Guid.NewGuid(),
                 SafeFileName(file.FileName, file.ContentType),
                 file.ContentType.ToLowerInvariant(),
-                file.Length,
+                content.CanSeek ? content.Length : file.Length,
                 form.Source,
                 string.IsNullOrWhiteSpace(form.Note) ? null : form.Note.Trim(),
                 Timestamps.ToMicroseconds(clock.GetUtcNow()),
                 OwnerId: user.Actor);
 
-            await using (var content = file.OpenReadStream())
+            await using (content)
             {
                 await store.SaveAsync(item.Id, content, cancellationToken);
             }
