@@ -75,7 +75,7 @@ Prerequisites: Ubuntu 24.04+/WSL 2, `sudo apt install dotnet-sdk-10.0 postgresql
 ```bash
 dotnet build TaskPulse.sln -c Release     # 0 warnings — warnings are errors
 sudo scripts/install.sh                    # once: creates the taskpulse_dev role the tests use (and deploys)
-scripts/test.sh                            # 45 tests on the real PostgreSQL cluster (+ Redis for the stream tests); --coverage for line rates
+scripts/test.sh                            # 44 tests on the real PostgreSQL cluster (+ Redis for the stream tests); --coverage for line rates
 ```
 
 ### 2. Run — pick one
