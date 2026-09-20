@@ -17,6 +17,9 @@ Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
 Environment=DOTNET_NOLOGO=1
 
 EnvironmentFile=/etc/taskpulse/api.env
+StateDirectory=taskpulse
+StateDirectoryMode=0750
+Environment=Api__UploadDirectory=/var/lib/taskpulse/uploads
 
 KillSignal=SIGTERM
 TimeoutStopSec=15

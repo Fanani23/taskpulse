@@ -28,8 +28,12 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     public static string ConnectionStringFor(string databaseName)
         => new NpgsqlConnectionStringBuilder(AdminConnectionString) { Database = databaseName }.ConnectionString;
 
+    public string UploadDirectory => Path.Combine(Path.GetTempPath(), "taskpulse-tests", DatabaseName);
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
-        => builder.UseSetting("ConnectionStrings:Tasks", ConnectionStringFor(DatabaseName));
+        => builder
+            .UseSetting("ConnectionStrings:Tasks", ConnectionStringFor(DatabaseName))
+            .UseSetting("Api:UploadDirectory", UploadDirectory);
 
     protected override void Dispose(bool disposing)
     {
@@ -37,6 +41,10 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         if (disposing && _ownsDatabase)
         {
             DropDatabase(DatabaseName);
+            if (Directory.Exists(UploadDirectory))
+            {
+                Directory.Delete(UploadDirectory, recursive: true);
+            }
         }
     }
 

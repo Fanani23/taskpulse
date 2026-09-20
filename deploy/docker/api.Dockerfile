@@ -12,6 +12,8 @@ RUN dotnet publish src/TaskPulse.Api/TaskPulse.Api.csproj -c Release -o /app/pub
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .
+RUN mkdir -p /data/uploads && chown -R app:app /data
+VOLUME /data
 
 ENV ASPNETCORE_URLS=http://+:8080 \
     ASPNETCORE_ENVIRONMENT=Production \

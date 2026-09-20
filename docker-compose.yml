@@ -24,6 +24,9 @@ services:
     environment:
       ConnectionStrings__Tasks: "Host=postgres;Port=5432;Database=taskpulse;Username=taskpulse;Password=${POSTGRES_PASSWORD:-taskpulse-local-only}"
       Api__MaxPageSize: "200"
+      Api__UploadDirectory: "/data/uploads"
+    volumes:
+      - uploads:/data
     ports:
       - "5080:8080"
     restart: unless-stopped
@@ -51,3 +54,4 @@ services:
 
 volumes:
   pgdata:
+  uploads:

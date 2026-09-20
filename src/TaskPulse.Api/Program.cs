@@ -52,6 +52,11 @@ builder.Services.AddScoped<ITaskRepository, PostgresTaskRepository>();
 builder.Services.AddScoped<ITaskService, TaskService>();
 builder.Services.AddScoped<ICatalogRepository, PostgresCatalogRepository>();
 builder.Services.AddScoped<ICatalogService, CatalogService>();
+builder.Services.AddScoped<IPreferencesRepository, PostgresPreferencesRepository>();
+builder.Services.AddScoped<IPreferencesService, PreferencesService>();
+builder.Services.AddScoped<IUploadRepository, PostgresUploadRepository>();
+builder.Services.AddSingleton<IUploadStore, DiskUploadStore>();
+builder.Services.AddScoped<IUploadService, UploadService>();
 
 builder.Services.AddHealthChecks()
     .AddCheck<TaskStoreHealthCheck>("task-store", tags: ["ready"]);

@@ -13,4 +13,10 @@ public sealed class ApiOptions
     public int MaxPageSize { get; set; } = 100;
 
     public string[] AllowedOrigins { get; set; } = [];
+
+    [Required]
+    public string UploadDirectory { get; set; } = "uploads";
+
+    [Range(1024, 64 * 1024 * 1024)]
+    public long MaxUploadBytes { get; set; } = 2 * 1024 * 1024;
 }

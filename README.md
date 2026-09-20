@@ -6,7 +6,7 @@ upgrade, Docker images, integration tests, and a smoke test.
 
 | Service | What it does | Port |
 |---|---|---|
-| `TaskPulse.Api` | Minimal-API CRUD for *tasks* on **PostgreSQL via EF Core** (migrations, optimistic concurrency, data survives restarts), paging + filtering, validation, OpenAPI, health checks | 5080 |
+| `TaskPulse.Api` | CRUD for *tasks* (+ stats, search), a *catalog* of reference data, per-user *preferences* and file *uploads* on **PostgreSQL via EF Core** (migrations, optimistic concurrency, data survives restarts); paging + filtering, validation, OpenAPI, health checks | 5080 |
 | `TaskPulse.Realtime` | WebSocket echo / broadcast / ping with a connection registry, graceful shutdown, browser test client | 5090 |
 | nginx | Single public entry point in front of both, handles the WebSocket `Upgrade` | 8088 |
 | PostgreSQL 18 | The store. Service connects over the Unix socket with peer auth — no password anywhere | 5433 |
@@ -17,7 +17,7 @@ taskpulse/
 │   ├── TaskPulse.Api/          Program.cs, Controllers/ → Services/ → Repositories/ → Data/ (EF Core), Models/ (DTOs), Infrastructure/
 │   └── TaskPulse.Realtime/         Program.cs, Controllers/ (/ws, /stats), Services/ (session, connection manager, router), Models/, wwwroot/
 ├── tests/
-│   ├── TaskPulse.Api.Tests/    10 integration tests through TestServer, each class on its own throw-away PostgreSQL database
+│   ├── TaskPulse.Api.Tests/    26 integration tests through TestServer, each class on its own throw-away PostgreSQL database
 │   └── TaskPulse.Realtime.Tests/   5 integration tests through TestServer's WebSocket client
 ├── deploy/
 │   ├── systemd/                     taskpulse-api.service, taskpulse-realtime.service
@@ -27,7 +27,7 @@ taskpulse/
 │   ├── install.sh                   provision PostgreSQL roles/DBs, publish → /opt/taskpulse, units, nginx  (sudo)
 │   ├── test.sh                      dotnet test against the local cluster (detects its port)
 │   ├── smoke-test.sh                end-to-end check of a running deployment
-│   ├── seed.sh                      40 sample tasks written through the API (idempotent; --force to add again)
+│   ├── seed.sh                      40 sample tasks + the catalog kinds, written through the API (idempotent; --force to add again)
 │   └── run-dev.sh                   both services from source with hot reload
 ├── docker-compose.yml
 ├── Directory.Build.props            net10.0, nullable, warnings-as-errors, invariant globalization
@@ -43,7 +43,7 @@ Prerequisites: Ubuntu 24.04+/WSL 2, `sudo apt install dotnet-sdk-10.0 postgresql
 ```bash
 dotnet build TaskPulse.sln -c Release     # 0 warnings — warnings are errors
 sudo scripts/install.sh                    # once: creates the taskpulse_dev role the tests use (and deploys)
-scripts/test.sh                            # 15 tests on the real PostgreSQL cluster
+scripts/test.sh                            # 31 tests on the real PostgreSQL cluster
 ```
 
 ### 2. Run — pick one
@@ -88,7 +88,8 @@ Base path `/api/tasks`. JSON in and out; enums as strings; errors as RFC 9457 `a
 
 | Method | Path | Success | Errors |
 |---|---|---|---|
-| `GET` | `/api/tasks?status=Todo&page=1&pageSize=20` | 200 `{items, page, pageSize, total}` | — |
+| `GET` | `/api/tasks?status=Todo&q=postgres&page=1&pageSize=20` | 200 `{items, page, pageSize, total}` | 400 (`q` > 100 chars) |
+| `GET` | `/api/tasks/stats?days=14` | 200 `{total, byStatus, completionRate, createdToday, doneThisWeek, donePreviousWeek, oldestOpen, daily[]}` | 400 (`days` ∉ 1–90) |
 | `GET` | `/api/tasks/{id}` | 200 | 404 |
 | `POST` | `/api/tasks` `{title, description?}` | 201 + `Location` | 400 validation |
 | `PUT` | `/api/tasks/{id}` `{title, description?, status}` | 200 | 400 validation, 404 |
@@ -96,7 +97,48 @@ Base path `/api/tasks`. JSON in and out; enums as strings; errors as RFC 9457 `a
 | `GET` | `/health` · `/health/ready` | 200 `Healthy` | 503 |
 | `GET` | `/openapi/v1.json` | OpenAPI 3 document | — |
 
-`status` ∈ `Todo | InProgress | Done`. `pageSize` is clamped to `Api:MaxPageSize` (100 by default).
+`status` ∈ `Todo | InProgress | Done`. `q` is a case-insensitive substring match on title and description (LIKE
+wildcards are escaped). `pageSize` is clamped to `Api:MaxPageSize` (100 by default). `/api/tasks/stats` answers
+with three grouped queries (by status, created per day, done per day) — no row is loaded — so a dashboard costs
+one request however many tasks exist.
+
+### Catalog — reference data with CRUD (`/api/catalog`)
+
+Every list the portal (part A) used to hard-code — regions, countries, states, places on the map, team members,
+links, form options, tags — is a *kind* here. An item has a `code` unique within its kind, a `label`, optional
+`parents` (codes of another kind, for cascades), free-form `attributes` (a JSON object, ≤ 4 KB, e.g.
+`{"lat": -6.2, "lng": 106.8}`) and a `sort` order.
+
+| Method | Path | Success | Errors |
+|---|---|---|---|
+| `GET` | `/api/catalog` | 200 `[{kind, count}]` | — |
+| `GET` | `/api/catalog/{kind}?parent=asia&q=rus` | 200 `[items]` (≤ 500, by `sort` then `label`) | — |
+| `GET` | `/api/catalog/{kind}/{code}` | 200 | 404 |
+| `POST` | `/api/catalog/{kind}` `{code?, label, parents?, attributes?, sort?}` | 201 + `Location`; `code` derived from `label` when omitted | 400 validation, 409 duplicate code |
+| `PUT` | `/api/catalog/{kind}/{code}` `{label, parents?, attributes?, sort?}` | 200 | 400, 404 |
+| `DELETE` | `/api/catalog/{kind}/{code}` | 204 — the code is also removed from every item's `parents` | 404 |
+
+`kind` and `code` match `^[a-z0-9][a-z0-9-]{0,63}$` (anything else is a 404 from routing). One table, a unique
+index on `(kind, code)` and a GIN index on `parents` — a dedicated entity per list would have been nine copies of
+the same controller. `scripts/seed.sh` seeds the kinds the portal needs and skips a kind that already has items.
+
+### Preferences (`/api/preferences/{userId}`)
+
+`GET` (404 until saved), `PUT {theme: light|dark|system, nickname?}` (upsert, 200), `DELETE` (204). The portal keys
+this by the user id in its JWT, so theme and nickname survive a reload and a different browser.
+
+### Uploads (`/api/uploads`)
+
+| Method | Path | Success | Errors |
+|---|---|---|---|
+| `POST` | `multipart/form-data`: `files[]`, `source?` (tag), `note?` | 201 `[items]` | 400 no file, 413 > `Api:MaxUploadBytes` (2 MB), 415 type not png/jpeg/webp/pdf/txt **or bytes that do not match the declared type** |
+| `GET` | `/api/uploads?source=signpad` | 200 newest first (≤ 100) | — |
+| `GET` | `/api/uploads/{id}` · `/api/uploads/{id}/content` | 200 metadata · the bytes with the original content type, range requests supported | 404 |
+| `DELETE` | `/api/uploads/{id}` | 204 (row and file) | 404 |
+
+Bytes live under `Api:UploadDirectory` — `/var/lib/taskpulse/uploads` via systemd `StateDirectory=` (the only path
+the hardened unit can write), a named volume in compose — and only the metadata is in PostgreSQL. Files are stored
+under their id, never under the client-supplied name.
 
 **Browsers on another origin:** CORS is off unless `Api:AllowedOrigins` lists the origin
 (`Api__AllowedOrigins__0=https://portal.example`; `install.sh` writes it from `TASKPULSE_ALLOWED_ORIGINS="origin ..."`).
@@ -195,9 +237,14 @@ Limits: 64 KiB per message (close code 1009 beyond that), 30 s server-side keep-
 ## Tests
 
 ```
-TaskPulse.Api.Tests   10 passed   CRUD round-trip (re-read after update), data survives a process restart,
+TaskPulse.Api.Tests   26 passed   tasks: CRUD round-trip (re-read after update), data survives a process restart,
                                        concurrent updates, validation 400, bad enum 400, 404, page-size clamp,
+                                       q search + LIKE escaping, stats shape and range check, CORS allow-list,
                                        health, correlation id, OpenAPI
+                                     catalog: CRUD with derived code and jsonb attributes, 409 on duplicate,
+                                       parent filter / search / ordering, delete cascades out of parents, bad input
+                                     preferences: upsert + read back, invalid theme, 404 after delete
+                                     uploads: round trip incl. downloaded bytes, 413 / 415 (signature mismatch) / 400
 TaskPulse.Realtime.Tests   5 passed   welcome/echo/pong, broadcast to two clients, raw text + bad JSON,
                                        plain GET on /ws is 400, /stats + /health
 ```
