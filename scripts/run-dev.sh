@@ -15,7 +15,7 @@ fi
 export Api__JwtSecret="${Api__JwtSecret:-dev-only-secret-change-me-please-32chars}"
 export Api__RealtimeInternalUrl="${Api__RealtimeInternalUrl:-http://127.0.0.1:5090/internal/broadcast}"
 
-dotnet watch --project "$ROOT/src/TaskPulse.Api"  --non-interactive run &
-dotnet watch --project "$ROOT/src/TaskPulse.Realtime" --non-interactive run &
+ASPNETCORE_URLS=http://0.0.0.0:5080 dotnet watch --project "$ROOT/src/TaskPulse.Api"  --non-interactive run &
+ASPNETCORE_URLS=http://0.0.0.0:5090 dotnet watch --project "$ROOT/src/TaskPulse.Realtime" --non-interactive run &
 trap 'kill 0' INT TERM
 wait
