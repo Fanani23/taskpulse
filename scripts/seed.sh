@@ -11,7 +11,9 @@ for a in "$@"; do
   esac
 done
 API="${API%/}"
-API="${API%/}"
+# Writes need a bearer token (see token.sh: TASKPULSE_TOKEN, TASKPULSE_JWT_SECRET or /etc/taskpulse/api.env).
+TOKEN_SUB=seed TOKEN_EMAIL=seed@taskpulse.local; . "$(dirname "${BASH_SOURCE[0]}")/token.sh"
+[[ -n "$TOKEN" ]] || { echo "seed: no token - set TASKPULSE_TOKEN or TASKPULSE_JWT_SECRET (or run with sudo on the box)" >&2; exit 1; }
 
 count() { curl -sf "$API/api/tasks?pageSize=1" | sed -E 's/.*"total":([0-9]+).*/\1/'; }
 
@@ -24,11 +26,11 @@ json() {
 create() {
   local status=$1 title=$2 desc=$3
   local body id
-  body=$(curl -sf -X POST "$API/api/tasks" -H 'Content-Type: application/json' -H 'X-Correlation-Id: seed' \
+  body=$(curl -sf -X POST "$API/api/tasks" -H 'Content-Type: application/json' -H 'X-Correlation-Id: seed' "${AUTH[@]}" \
          --data "$(printf '{"title":%s,"description":%s}' "$(json "$title")" "$(json "$desc")")")
   id=$(sed -E 's/.*"id":"([^"]+)".*/\1/' <<<"$body")
   if [[ "$status" != "Todo" ]]; then
-    curl -sf -o /dev/null -X PUT "$API/api/tasks/$id" -H 'Content-Type: application/json' -H 'X-Correlation-Id: seed' \
+    curl -sf -o /dev/null -X PUT "$API/api/tasks/$id" -H 'Content-Type: application/json' -H 'X-Correlation-Id: seed' "${AUTH[@]}" \
          --data "$(printf '{"title":%s,"description":%s,"status":"%s"}' "$(json "$title")" "$(json "$desc")" "$status")"
   fi
   printf '  %-10s %s\n' "$status" "$title"
@@ -44,7 +46,7 @@ seed_catalog() {
   while IFS='|' read -r code label parents attributes sort; do
     [[ -z "$code" ]] && continue
     parents_json=$(printf '%s' "$parents" | sed -E 's/[^,]+/"&"/g')
-    curl -sf -o /dev/null -X POST "$API/api/catalog/$kind" -H 'Content-Type: application/json' -H 'X-Correlation-Id: seed' \
+    curl -sf -o /dev/null -X POST "$API/api/catalog/$kind" -H 'Content-Type: application/json' -H 'X-Correlation-Id: seed' "${AUTH[@]}" \
          --data "{\"code\":\"$code\",\"label\":$(json "$label"),\"parents\":[$parents_json],\"attributes\":${attributes:-null},\"sort\":${sort:-0}}" \
       || { echo "  catalog/$kind/$code failed" >&2; continue; }
     n=$((n + 1))

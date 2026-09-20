@@ -43,6 +43,7 @@ services:
       Api__RealtimeInternalUrl: "http://realtime:8080/internal/broadcast"
       Api__RealtimeInternalToken: "${TASKPULSE_INTERNAL_TOKEN:-compose-internal-token}"
       Api__RedisUrl: "redis:6379"
+      Api__AllowedOrigins__0: "${TASKPULSE_ALLOWED_ORIGIN:-http://127.0.0.1:8080}"
     volumes:
       - uploads:/data
     ports:

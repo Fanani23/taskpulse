@@ -7,24 +7,8 @@ CID="smoke-$(date +%s)"
 # A private temp file: a fixed /tmp name breaks under sudo when a non-root run left it behind (protected_regular).
 BODY=$(mktemp); trap 'rm -f "$BODY"' EXIT
 fail=0
-# Writes need a bearer token signed with the express JWT secret. Pass TASKPULSE_TOKEN, or let the script sign one
-# with TASKPULSE_JWT_SECRET (read from /etc/taskpulse/api.env when sudo is available).
-b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
-mint_token() {
-  local secret=$1 now header payload
-  now=$(date +%s)
-  header=$(printf '{"alg":"HS256","typ":"JWT"}' | b64url)
-  payload=$(printf '{"sub":"smoke","roles":["Admin"],"user_meta":{"email":"smoke@taskpulse.local"},"iat":%s,"exp":%s}' "$now" $((now + 600)) | b64url)
-  printf '%s.%s.%s' "$header" "$payload" "$(printf '%s.%s' "$header" "$payload" | openssl dgst -sha256 -hmac "$secret" -binary | b64url)"
-}
-TOKEN="${TASKPULSE_TOKEN:-}"
-if [[ -z "$TOKEN" ]]; then
-  SECRET="${TASKPULSE_JWT_SECRET:-}"
-  [[ -z "$SECRET" && -r /etc/taskpulse/api.env ]] && SECRET=$(sed -n 's/^Api__JwtSecret=//p' /etc/taskpulse/api.env)
-  [[ -z "$SECRET" ]] && SECRET=$(sudo -n sed -n 's/^Api__JwtSecret=//p' /etc/taskpulse/api.env 2>/dev/null || true)
-  [[ -n "$SECRET" ]] && TOKEN=$(mint_token "$SECRET")
-fi
-AUTH=(); [[ -n "$TOKEN" ]] && AUTH=(-H "Authorization: Bearer $TOKEN")
+# Writes need a bearer token (token.sh: TASKPULSE_TOKEN, TASKPULSE_JWT_SECRET or /etc/taskpulse/api.env).
+TOKEN_SUB=smoke TOKEN_EMAIL=smoke@taskpulse.local; . "$(dirname "${BASH_SOURCE[0]}")/token.sh"
 pass() { printf '  \033[1;32mPASS\033[0m %s\n' "$*"; }
 fail() { printf '  \033[1;31mFAIL\033[0m %s\n' "$*"; fail=1; }
 check() {
