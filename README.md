@@ -10,6 +10,7 @@ upgrade, Docker images, integration tests, and a smoke test.
 | `TaskPulse.Realtime` | WebSocket echo / broadcast / ping with a connection registry, `changed` fan-out from the API (`/internal/broadcast`), graceful shutdown, browser test client | 5090 |
 | nginx | Single public entry point in front of both, handles the WebSocket `Upgrade` | 8088 |
 | PostgreSQL 18 | The store. Service connects over the Unix socket with peer auth — no password anywhere | 5433 |
+| Redis 7 | Change-event stream between the two services (optional: without it the loopback HTTP hop is used) | 6379 |
 
 ```
 taskpulse/
@@ -17,8 +18,8 @@ taskpulse/
 │   ├── TaskPulse.Api/          Program.cs, Controllers/ → Services/ → Repositories/ → Data/ (EF Core), Models/ (DTOs), Infrastructure/
 │   └── TaskPulse.Realtime/         Program.cs, Controllers/ (/ws, /stats), Services/ (session, connection manager, router), Models/, wwwroot/
 ├── tests/
-│   ├── TaskPulse.Api.Tests/    35 integration tests through TestServer, each class on its own throw-away PostgreSQL database
-│   └── TaskPulse.Realtime.Tests/   6 integration tests through TestServer's WebSocket client
+│   ├── TaskPulse.Api.Tests/    36 integration tests through TestServer, each class on its own throw-away PostgreSQL database
+│   └── TaskPulse.Realtime.Tests/   8 integration tests through TestServer's WebSocket client
 ├── deploy/
 │   ├── systemd/                     taskpulse-api.service, taskpulse-realtime.service, taskpulse-backup.service + .timer (02:30 nightly)
 │   ├── nginx/                       taskpulse.conf (host), taskpulse.compose.conf (docker)
@@ -51,15 +52,17 @@ flowchart LR
     B -- "WebSocket · {type:auth, token}" --> N --> R
     A -- "EF Core · peer auth over the Unix socket" --> P
     A -- bytes --> U
-    A -- "POST /internal/broadcast (loopback)" --> R
+    K[(Redis :6379<br/>stream taskpulse:changes)]
+    A -- "XADD change event" --> K -- "XREAD from this node's cursor" --> R
+    A -. "or POST /internal/broadcast (loopback, no Redis)" .-> R
     R -- "changed · broadcast · echo" --> B
     X -. "same JWT secret" .-> A
     X -. "same JWT secret" .-> R
 ```
 
 Every write goes browser → nginx → API → PostgreSQL, and the API tells Realtime, which fans a `changed` event out to
-every socket — that is how a second tab refreshes without polling. The API and Realtime never share memory: on one
-box the hop is a loopback HTTP post that nginx never exposes; in compose it carries a shared header token.
+every socket — that is how a second tab refreshes without polling. The API and Realtime never share memory: the hop
+is a Redis stream (durable, multi-node) or, without Redis, a loopback HTTP post that nginx never exposes.
 
 ## Quick start
 
@@ -70,7 +73,7 @@ Prerequisites: Ubuntu 24.04+/WSL 2, `sudo apt install dotnet-sdk-10.0 postgresql
 ```bash
 dotnet build TaskPulse.sln -c Release     # 0 warnings — warnings are errors
 sudo scripts/install.sh                    # once: creates the taskpulse_dev role the tests use (and deploys)
-scripts/test.sh                            # 41 tests on the real PostgreSQL cluster
+scripts/test.sh                            # 44 tests on the real PostgreSQL cluster (+ Redis for the stream tests)
 ```
 
 ### 2. Run — pick one
@@ -156,10 +159,15 @@ guards the database itself). Without `If-Match` the last write wins, as before.
 **Rate limit** — writes are limited per client address (`Api:WritesPerMinute`, default 120/min, fixed window); the 121st
 answers **429** problem+json with `Retry-After`. Reads are not limited.
 
-**Change events** — after every write the API posts `{type:"changed", resource, action, id, kind, actor}` to
-TaskPulse.Realtime's `POST /internal/broadcast` (loopback-only; nginx returns 404 for `/internal/`; a shared
-`X-Internal-Token` covers Docker compose where the two are separate hosts) and Realtime fans it out to every socket, so
-every open page refreshes without polling. Fire-and-forget through a bounded channel: a write never waits for the socket server.
+**Change events** — after every write the API emits `{type:"changed", resource, action, id, kind, actor}` and
+Realtime fans it out to every socket, so every open page refreshes without polling. Fire-and-forget through a bounded
+channel: a write never waits for the socket server. Two transports, chosen by configuration:
+- **Redis stream** (`Api:RedisUrl` / `WebSocket:RedisUrl`, what `install.sh` configures when a local Redis answers and
+  what compose uses): `XADD taskpulse:changes` (capped at ~10 000 entries) plus a `PUBLISH` nudge; Realtime follows the
+  stream and keeps its cursor in Redis per node, so an event written **while Realtime is restarting is delivered when it
+  is back**, and any number of Realtime nodes can follow the same stream.
+- **Loopback HTTP** (`Api:RealtimeInternalUrl`, the fallback without Redis): `POST /internal/broadcast`, loopback-only;
+  nginx returns 404 for `/internal/`; a shared `X-Internal-Token` covers a split host without Redis.
 
 **Metrics** — `/metrics` (prometheus-net: request counts, durations, in-flight) for scraping from the box.
 
@@ -318,7 +326,7 @@ dependency-free console page (its script and stylesheet are separate files so th
 ## Tests
 
 ```
-TaskPulse.Api.Tests   35 passed   tasks: CRUD round-trip (re-read after update), data survives a process restart,
+TaskPulse.Api.Tests   36 passed   tasks: CRUD round-trip (re-read after update), data survives a process restart,
                                        concurrent updates, validation 400, bad enum 400, 404, page-size clamp,
                                        q search + LIKE escaping, stats shape and range check, CORS allow-list,
                                        health, correlation id, OpenAPI
@@ -331,15 +339,19 @@ TaskPulse.Api.Tests   35 passed   tasks: CRUD round-trip (re-read after update),
                                        soft delete -> includeDeleted -> restore, ETag round trip + stale If-Match 412,
                                        429 with Retry-After past the write limit, catalog paging headers,
                                        schema refused when items violate it then enforced on create
-TaskPulse.Realtime.Tests   6 passed   welcome/echo/pong, broadcast to two clients, raw text + bad JSON,
-                                       plain GET on /ws is 400, /stats + /health, /internal/broadcast fans out `changed`
-                                       (and refuses a forwarded request)
+                                     change stream: a write lands in the Redis stream with the actor (needs Redis)
+TaskPulse.Realtime.Tests   8 passed   welcome/echo/pong, anonymous broadcast refused → auth (bad / expired / valid
+                                       token) → broadcast to two clients with the actor, rate limits (error, then 1008),
+                                       raw text + bad JSON, plain GET on /ws is 400, /stats + /health,
+                                       /internal/broadcast fans out `changed` (and refuses a forwarded request),
+                                       stream entry → `changed` on every socket + cursor persisted (needs Redis)
 ```
 
 All are integration tests through `WebApplicationFactory<Program>` — real routing, JSON, middleware, the real
 Npgsql provider against a **throw-away database created per test class on the real server** (dropped after),
 and (for the socket) TestServer's in-memory WebSocket client. No mocks, no in-memory database provider.
-In CI this is a `postgres` service container and `TASKPULSE_TEST_PG`.
+In CI these are `postgres` and `redis` service containers (`TASKPULSE_TEST_PG`, `TASKPULSE_TEST_REDIS`); the two
+stream tests skip themselves when no Redis is configured.
 
 ## Things learned while building this (worth asking me about)
 

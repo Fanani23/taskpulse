@@ -66,11 +66,19 @@ if [[ -z "$JWT_SECRET" ]]; then
   echo "!! until you re-run with TASKPULSE_JWT_SECRET=<express JWT_SECRET> (README, Authentication)."
 fi
 
+# Change events: through the local Redis (durable stream, survives a Realtime restart) when one is running,
+# otherwise over the loopback HTTP hop. TASKPULSE_REDIS_URL overrides the detection ("" disables Redis).
+REDIS_URL="${TASKPULSE_REDIS_URL-}"
+if [[ -z "${TASKPULSE_REDIS_URL+x}" ]] && command -v redis-cli >/dev/null 2>&1 && redis-cli -h 127.0.0.1 ping 2>/dev/null | grep -q PONG; then
+  REDIS_URL="127.0.0.1:6379"
+fi
+
 install -d -m 0755 "$ENV_DIR"
 {
   printf 'ConnectionStrings__Tasks=Host=/var/run/postgresql;Port=%s;Database=%s;Username=%s\n' "$PG_PORT" "$DB_NAME" "$SVC_USER"
   printf 'Api__JwtSecret=%s\n' "$JWT_SECRET"
   printf 'Api__RealtimeInternalUrl=http://127.0.0.1:5090/internal/broadcast\n'
+  [[ -n "$REDIS_URL" ]] && printf 'Api__RedisUrl=%s\n' "$REDIS_URL"
   i=0
   for origin in ${TASKPULSE_ALLOWED_ORIGINS:-}; do
     printf 'Api__AllowedOrigins__%s=%s\n' "$i" "$origin"; i=$((i + 1))
@@ -78,8 +86,8 @@ install -d -m 0755 "$ENV_DIR"
 } > "$ENV_DIR/api.env"
 chmod 0600 "$ENV_DIR/api.env"
 {
-  printf 'WebSocket__JwtSecret=%s
-' "$JWT_SECRET"
+  printf 'WebSocket__JwtSecret=%s\n' "$JWT_SECRET"
+  [[ -n "$REDIS_URL" ]] && printf 'WebSocket__RedisUrl=%s\n' "$REDIS_URL"
 } > "$ENV_DIR/realtime.env"
 chmod 0600 "$ENV_DIR/realtime.env"
 

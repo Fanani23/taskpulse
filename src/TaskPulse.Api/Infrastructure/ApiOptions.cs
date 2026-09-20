@@ -38,4 +38,8 @@ public sealed class ApiOptions
 
     // Sent as X-Internal-Token when the Realtime service is on another host (compose); empty on a single box.
     public string? RealtimeInternalToken { get; set; }
+
+    // When set (e.g. "127.0.0.1:6379"), change events go through the Redis stream `taskpulse:changes` instead of
+    // the HTTP hop: durable across a Realtime restart and shared by every Realtime node.
+    public string? RedisUrl { get; set; }
 }

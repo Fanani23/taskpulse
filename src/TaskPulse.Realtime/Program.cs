@@ -22,6 +22,8 @@ builder.Services.AddControllers();
 builder.Services.AddSingleton<ConnectionManager>();
 builder.Services.AddSingleton<TokenValidator>();
 builder.Services.AddSingleton<MessageRouter>();
+builder.Services.AddSingleton<ChangeStreamReader>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ChangeStreamReader>());
 builder.Services.AddScoped<WebSocketSession>();
 builder.Services.AddHealthChecks();
 builder.Services.AddProblemDetails();

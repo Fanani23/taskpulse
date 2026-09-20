@@ -7,5 +7,9 @@ if command -v pg_lsclusters >/dev/null; then
   PG_PORT="$(pg_lsclusters -h | awk 'NR==1{print $3}')"
   export TASKPULSE_TEST_PG="${TASKPULSE_TEST_PG:-Host=localhost;Port=$PG_PORT;Database=postgres;Username=taskpulse_dev;Password=taskpulse_dev}"
 fi
-echo "tests use: ${TASKPULSE_TEST_PG:-<default: localhost:5432 as taskpulse_dev>}"
+# The change-stream tests need a Redis; they are skipped when none answers.
+if [[ -z "${TASKPULSE_TEST_REDIS:-}" ]] && command -v redis-cli >/dev/null && redis-cli -h 127.0.0.1 ping 2>/dev/null | grep -q PONG; then
+  export TASKPULSE_TEST_REDIS="127.0.0.1:6379"
+fi
+echo "tests use: ${TASKPULSE_TEST_PG:-<default: localhost:5432 as taskpulse_dev>}; redis: ${TASKPULSE_TEST_REDIS:-<none, stream tests skipped>}"
 exec dotnet test "$ROOT/TaskPulse.sln" -c Release "$@"

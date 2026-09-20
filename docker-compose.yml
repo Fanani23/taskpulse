@@ -14,12 +14,26 @@ services:
       retries: 10
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   api:
     build:
       context: .
       dockerfile: deploy/docker/api.Dockerfile
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     environment:
       ConnectionStrings__Tasks: "Host=postgres;Port=5432;Database=taskpulse;Username=taskpulse;Password=${POSTGRES_PASSWORD:-taskpulse-local-only}"
@@ -28,6 +42,7 @@ services:
       Api__JwtSecret: "${TASKPULSE_JWT_SECRET:-compose-only-secret-change-me-32-chars}"
       Api__RealtimeInternalUrl: "http://realtime:8080/internal/broadcast"
       Api__RealtimeInternalToken: "${TASKPULSE_INTERNAL_TOKEN:-compose-internal-token}"
+      Api__RedisUrl: "redis:6379"
     volumes:
       - uploads:/data
     ports:
@@ -38,10 +53,15 @@ services:
     build:
       context: .
       dockerfile: deploy/docker/realtime.Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
       WebSocket__KeepAliveIntervalSeconds: "20"
       WebSocket__InternalToken: "${TASKPULSE_INTERNAL_TOKEN:-compose-internal-token}"
       WebSocket__JwtSecret: "${TASKPULSE_JWT_SECRET:-compose-only-secret-change-me-32-chars}"
+      WebSocket__RedisUrl: "redis:6379"
+      WebSocket__NodeName: "realtime-1"
     ports:
       - "5090:8080"
     restart: unless-stopped
@@ -60,3 +80,4 @@ services:
 volumes:
   pgdata:
   uploads:
+  redisdata:

@@ -35,4 +35,10 @@ public sealed class WsOptions
 
     [Range(1, 10_000)]
     public int BroadcastsPerMinute { get; set; } = 30;
+
+    // When set, change events are read from the Redis stream the API writes (see ChangeStreamReader) instead of
+    // arriving on /internal/broadcast. NodeName keys this node's stream cursor (defaults to the machine name).
+    public string? RedisUrl { get; set; }
+
+    public string? NodeName { get; set; }
 }
