@@ -1,3 +1,4 @@
+using NpgsqlTypes;
 using TaskPulse.Api.Models;
 
 namespace TaskPulse.Api.Data;
@@ -33,6 +34,9 @@ public sealed class TaskEntity
     public string? AssigneeName { get; set; }
 
     public string[] Labels { get; set; } = [];
+
+    // Full-text search vector over title + description, computed by PostgreSQL (stored generated column).
+    public NpgsqlTsVector? SearchVector { get; set; }
 
     public TaskItem ToItem() => new(
         Id,

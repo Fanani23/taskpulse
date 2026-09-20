@@ -137,8 +137,9 @@ Base path `/api/tasks`. JSON in and out; enums as strings; errors as RFC 9457 `a
 `status` ∈ `Todo | InProgress | Done`, `priority` ∈ `Low | Normal | High` (default Normal). `dueAt` is any instant;
 `due` filters `overdue | today | week | none`. `assigneeId` is a user id from part A's `/api/users` (`assignee=me` is
 the caller's own); `assigneeName` is stored with it so lists need no join. `labels`: up to 10, ≤ 32 chars each,
-lower-cased and de-duplicated on write (`label=` filters on one). `q` is a case-insensitive substring match on title
-and description (LIKE wildcards are escaped). `pageSize` is clamped to `Api:MaxPageSize` (100 by default). `/api/tasks/stats` answers
+lower-cased and de-duplicated on write (`label=` filters on one). `q` is a **full-text search** over title and description: PostgreSQL `tsvector` (English stemming, so
+*upgrading* finds *upgrade*) with every term as a prefix (so *postg* still finds *PostgreSQL*), results ranked by
+relevance; operator characters typed by a user are just words, never tsquery syntax. `pageSize` is clamped to `Api:MaxPageSize` (100 by default). `/api/tasks/stats` answers
 with three grouped queries (by status, created per day, done per day) plus `overdue` and `dueThisWeek` counts — no
 row is loaded — so a dashboard costs one request however many tasks exist.
 

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using TaskPulse.Api.Data;
+using TaskPulse.Api.Infrastructure;
 using TaskPulse.Api.Models;
 
 namespace TaskPulse.Api.Repositories;
@@ -52,21 +53,29 @@ public sealed class PostgresTaskRepository(TasksDbContext db) : ITaskRepository
             };
         }
 
-        if (!string.IsNullOrWhiteSpace(search))
+        // Full text: every word of the search is a stemmed prefix term ("post" -> post:*), all required. A search with no
+        // word characters (e.g. "%") matches nothing rather than everything.
+        var tsQuery = FullText.ToPrefixQuery(search);
+        if (search is not null && search.Trim().Length > 0 && tsQuery is null)
         {
-            var pattern = $"%{LikePatterns.Escape(search.Trim())}%";
-            query = query.Where(t => EF.Functions.ILike(t.Title, pattern, LikePatterns.EscapeCharacter)
-                                  || (t.Description != null && EF.Functions.ILike(t.Description, pattern, LikePatterns.EscapeCharacter)));
+            return ([], 0);
+        }
+
+        if (tsQuery is not null)
+        {
+            query = query.Where(t => t.SearchVector!.Matches(EF.Functions.ToTsQuery("english", tsQuery)));
         }
 
         var total = await query.CountAsync(cancellationToken);
 
-        // Open tasks with a due date first (soonest first), then the rest by creation - the board reads top-down.
-        var entities = await query
-            .OrderBy(t => t.Status == TaskItemStatus.Done)
-            .ThenBy(t => t.DueAtUtc == null)
-            .ThenBy(t => t.DueAtUtc)
-            .ThenBy(t => t.CreatedAtUtc)
+        // Search results by relevance; otherwise open tasks with a due date first (soonest first), then by creation.
+        var ordered = tsQuery is not null
+            ? query.OrderByDescending(t => t.SearchVector!.Rank(EF.Functions.ToTsQuery("english", tsQuery))).ThenBy(t => t.CreatedAtUtc)
+            : query.OrderBy(t => t.Status == TaskItemStatus.Done)
+                   .ThenBy(t => t.DueAtUtc == null)
+                   .ThenBy(t => t.DueAtUtc)
+                   .ThenBy(t => t.CreatedAtUtc);
+        var entities = await ordered
             .ThenBy(t => t.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)

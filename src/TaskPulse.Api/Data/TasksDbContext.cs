@@ -44,6 +44,10 @@ public sealed class TasksDbContext(DbContextOptions<TasksDbContext> options) : D
         tasks.HasIndex(t => t.DueAtUtc);
         tasks.HasIndex(t => t.AssigneeId);
         tasks.HasIndex(t => t.Labels).HasMethod("gin");
+        // English stemming: "upgrading" finds "upgrade"; the query side adds prefix matching so "post" still finds "postgres".
+        tasks.Property(t => t.SearchVector)
+            .HasComputedColumnSql("to_tsvector('english', coalesce(\"Title\", '') || ' ' || coalesce(\"Description\", ''))", stored: true);
+        tasks.HasIndex(t => t.SearchVector).HasMethod("gin");
 
         tasks.HasIndex(t => t.Status);
         tasks.HasIndex(t => t.CreatedAtUtc);

@@ -187,6 +187,15 @@ public sealed class TasksControllerTests(ApiFactory factory) : IClassFixture<Api
         var escaped = await _client.GetFromJsonAsync<PagedResponse<TaskItem>>("/api/tasks?q=%25&pageSize=1", Json);
         Assert.Equal(0, escaped!.Total);
 
+        // Full text: stemming ("upgrading" finds "upgrade"), prefixes ("postg" finds "PostgreSQL"), and operators typed
+        // by a user are just words, never tsquery syntax.
+        var stemmed = await _client.GetFromJsonAsync<PagedResponse<TaskItem>>($"/api/tasks?q={marker}%20upgrading&pageSize=50", Json);
+        Assert.Equal(1, stemmed!.Total);
+        var prefix = await _client.GetFromJsonAsync<PagedResponse<TaskItem>>($"/api/tasks?q={marker}%20postg&pageSize=50", Json);
+        Assert.Equal(2, prefix!.Total);
+        var operators = await _client.GetAsync($"/api/tasks?q={Uri.EscapeDataString(marker + " & !(upgrade) | 'x")}&pageSize=50");
+        Assert.Equal(HttpStatusCode.OK, operators.StatusCode);
+
         var tooLong = await _client.GetAsync("/api/tasks?q=" + new string('a', TaskLimits.SearchMaxLength + 1));
         Assert.Equal(HttpStatusCode.BadRequest, tooLong.StatusCode);
     }
