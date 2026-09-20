@@ -1,0 +1,9 @@
+{
+  "at": "2026-09-20T17:02:27.353Z",
+  "base": "http://127.0.0.1:5080",
+  "lines": [
+    "requests: 5804 in 72s (80.1/s), failed 0.00%",
+    "readers  med 1.8 ms  p95 3.7 ms  max 9.7 ms",
+    "writers  med 8.1 ms  p95 10.4 ms  max 16.0 ms"
+  ]
+}

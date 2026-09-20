@@ -30,6 +30,7 @@ taskpulse/
 │   ├── smoke-test.sh                end-to-end check of a running deployment
 │   ├── seed.sh                      40 sample tasks + the catalog kinds, written through the API (idempotent; --force to add again)
 │   ├── backup.sh                    pg_dump + uploads tarball, keeps 7; --restore <archive>
+│   ├── load/run.sh                  k6 load profile (readers + writers) with thresholds; last-run.json keeps the figures
 │   └── run-dev.sh                   both services from source with hot reload
 ├── docker-compose.yml
 ├── Directory.Build.props            net10.0, nullable, warnings-as-errors, invariant globalization
@@ -270,6 +271,24 @@ past twice it the server closes with **1008**; `WebSocket:BroadcastsPerMinute` (
 
 `GET /stats` lists live connections (with `user` once authenticated). `GET /health` for probes. `GET /` is a
 dependency-free console page (its script and stylesheet are separate files so the CSP can forbid inline code).
+
+## Load figures
+
+`scripts/load/run.sh` runs a k6 profile (`scripts/load/api.js`): 25 virtual users reading (paged list, stats, one task,
+a catalog page, ~4 requests each per second) for 70 s, plus 2 writing (create → update → purge, so the audit row, the
+change event and the write limiter are in the numbers). Measured against Kestrel on the dev box (WSL 2, 12 vCPU,
+PostgreSQL and Redis on the same machine), 2026-09-20:
+
+```
+requests: 5804 in 72s (80.1/s), failed 0.00%
+readers  med 1.8 ms  p95 3.7 ms  max 9.7 ms
+writers  med 8.1 ms  p95 10.4 ms  max 16.0 ms
+```
+
+Thresholds in the script (p95 < 300 ms reads, < 500 ms writes, < 1 % failures) are far above what one box does; they
+are there so a regression shows as a failed run, not as a slower number nobody reads. Through nginx a single client
+address is capped at 30 requests/s (`limit_req`, 503 beyond), which is why the profile targets the application port —
+run it against `:8088` to watch the edge limiter instead.
 
 ## Design decisions — the "best practices" and why each one is there
 
