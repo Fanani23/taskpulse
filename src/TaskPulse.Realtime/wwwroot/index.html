@@ -316,6 +316,9 @@
           render('in', m.type, [from, document.createTextNode(': '), document.createTextNode(m.data ?? '')]);
           break;
         }
+        case 'changed':
+          render('in', 'changed', [...kv('who', m.actor ?? 'anonymous'), ...kv('did', `${m.action} ${m.resource}${m.kind ? '/' + m.kind : ''}`), ...kv('id', String(m.id).slice(0, 8))]);
+          break;
         case 'error':
           render('err', 'error', m.error ?? raw);
           break;
