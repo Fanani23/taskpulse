@@ -202,6 +202,8 @@ public sealed class TasksControllerTests(ApiFactory factory) : IClassFixture<Api
         Assert.True(stats.Daily[^1].Created >= 2);
         Assert.InRange(stats.CompletionRate, 0, 1);
         Assert.NotNull(stats.OldestOpen);
+        Assert.Contains(stats.RecentlyUpdated, t => t.Id == done.Id);
+        Assert.Equal(stats.RecentlyUpdated.OrderByDescending(t => t.UpdatedAt).Select(t => t.Id), stats.RecentlyUpdated.Select(t => t.Id));
         Assert.NotEqual(TaskItemStatus.Done, stats.OldestOpen.Status);
         Assert.True(stats.OldestOpen.CreatedAt <= open!.CreatedAt);
 

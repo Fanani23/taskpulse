@@ -6,6 +6,8 @@ namespace TaskPulse.Api.Repositories;
 
 public sealed class PostgresTaskRepository(TasksDbContext db) : ITaskRepository
 {
+    private const int RecentCount = 5;
+
     public async Task<TaskItem?> GetAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var entity = await db.Tasks.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
@@ -116,8 +118,13 @@ public sealed class PostgresTaskRepository(TasksDbContext db) : ITaskRepository
             .Where(t => t.Status != TaskItemStatus.Done)
             .OrderBy(t => t.CreatedAtUtc)
             .ThenBy(t => t.Id)
-            .Select(t => new { t.Id, t.Title, t.Status, t.CreatedAtUtc })
             .FirstOrDefaultAsync(cancellationToken);
+
+        var recent = await db.Tasks.AsNoTracking()
+            .OrderByDescending(t => t.UpdatedAtUtc)
+            .ThenBy(t => t.Id)
+            .Take(RecentCount)
+            .ToListAsync(cancellationToken);
 
         return new TaskStats(
             total,
@@ -126,11 +133,14 @@ public sealed class PostgresTaskRepository(TasksDbContext db) : ITaskRepository
             createdPerDay.GetValueOrDefault(today),
             donePerDay.Where(kv => kv.Key >= weekStart).Sum(kv => kv.Value),
             donePerDay.Where(kv => kv.Key >= previousWeekStart && kv.Key < weekStart).Sum(kv => kv.Value),
-            oldestOpen is null ? null : new OpenTaskSummary(
-                oldestOpen.Id,
-                oldestOpen.Title,
-                oldestOpen.Status,
-                new DateTimeOffset(DateTime.SpecifyKind(oldestOpen.CreatedAtUtc, DateTimeKind.Utc))),
+            oldestOpen is null ? null : Summarize(oldestOpen),
+            recent.Select(Summarize).ToList(),
             daily);
+    }
+
+    private static TaskSummary Summarize(TaskEntity entity)
+    {
+        var item = entity.ToItem();
+        return new TaskSummary(item.Id, item.Title, item.Status, item.CreatedAt, item.UpdatedAt);
     }
 }

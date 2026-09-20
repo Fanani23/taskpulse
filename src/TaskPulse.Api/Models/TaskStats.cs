@@ -10,7 +10,7 @@ public sealed record TaskStatsQuery
 
 public sealed record DailyTaskCount(DateOnly Date, int Created, int Done);
 
-public sealed record OpenTaskSummary(Guid Id, string Title, TaskItemStatus Status, DateTimeOffset CreatedAt);
+public sealed record TaskSummary(Guid Id, string Title, TaskItemStatus Status, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
 
 public sealed record TaskStats(
     int Total,
@@ -19,5 +19,6 @@ public sealed record TaskStats(
     int CreatedToday,
     int DoneThisWeek,
     int DonePreviousWeek,
-    OpenTaskSummary? OldestOpen,
+    TaskSummary? OldestOpen,
+    IReadOnlyList<TaskSummary> RecentlyUpdated,
     IReadOnlyList<DailyTaskCount> Daily);

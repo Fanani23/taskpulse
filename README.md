@@ -89,7 +89,7 @@ Base path `/api/tasks`. JSON in and out; enums as strings; errors as RFC 9457 `a
 | Method | Path | Success | Errors |
 |---|---|---|---|
 | `GET` | `/api/tasks?status=Todo&q=postgres&page=1&pageSize=20` | 200 `{items, page, pageSize, total}` | 400 (`q` > 100 chars) |
-| `GET` | `/api/tasks/stats?days=14` | 200 `{total, byStatus, completionRate, createdToday, doneThisWeek, donePreviousWeek, oldestOpen, daily[]}` | 400 (`days` ∉ 1–90) |
+| `GET` | `/api/tasks/stats?days=14` | 200 `{total, byStatus, completionRate, createdToday, doneThisWeek, donePreviousWeek, oldestOpen, recentlyUpdated[], daily[]}` | 400 (`days` ∉ 1–90) |
 | `GET` | `/api/tasks/{id}` | 200 | 404 |
 | `POST` | `/api/tasks` `{title, description?}` | 201 + `Location` | 400 validation |
 | `PUT` | `/api/tasks/{id}` `{title, description?, status}` | 200 | 400 validation, 404 |
