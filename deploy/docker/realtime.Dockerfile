@@ -9,7 +9,7 @@ RUN dotnet restore src/TaskPulse.Realtime/TaskPulse.Realtime.csproj
 COPY src/TaskPulse.Realtime/ src/TaskPulse.Realtime/
 RUN dotnet publish src/TaskPulse.Realtime/TaskPulse.Realtime.csproj -c Release -o /app/publish --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:11.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .
 
